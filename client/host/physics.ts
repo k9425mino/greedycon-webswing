@@ -197,6 +197,7 @@ export class PhysicsWorld implements TargetQuery {
   dispose(): void {
     this.detach();
     this.world.free();
+    this.eventQueue.free();
   }
 }
 

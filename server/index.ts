@@ -89,37 +89,48 @@ async function main() {
       emitSessionStatus(session);
     });
 
-    socket.on(SOCKET_EVENTS.sessionResume, (payload: { token?: string }, ack) => {
-      if (typeof ack !== 'function') return;
-      if (socketIdToSessionId.has(socket.id)) return ack({ ok: false, error: 'invalid_token' });
-      const token = payload?.token ?? '';
-      const hostSession = sessions.findByHostToken(token);
-      if (hostSession) {
-        if (hostSession.hostSocketId) {
-          io.sockets.sockets.get(hostSession.hostSocketId)?.disconnect(true);
+    socket.on(
+      SOCKET_EVENTS.sessionResume,
+      (payload: { token?: string; inviteToken?: string }, ack) => {
+        if (typeof ack !== 'function') return;
+        if (socketIdToSessionId.has(socket.id)) return ack({ ok: false, error: 'invalid_token' });
+        const token = payload?.token ?? '';
+        const hostSession = sessions.findByHostToken(token);
+        if (hostSession) {
+          if (hostSession.hostSocketId) {
+            io.sockets.sockets.get(hostSession.hostSocketId)?.disconnect(true);
+          }
+          sessions.resumeHost(hostSession, socket.id);
+          socketIdToSessionId.set(socket.id, hostSession.id);
+          socketIdToRole.set(socket.id, 'host');
+          ack({ ok: true, sessionId: hostSession.id, role: 'host' });
+          emitSessionStatus(hostSession);
+          return;
         }
-        sessions.resumeHost(hostSession, socket.id);
-        socketIdToSessionId.set(socket.id, hostSession.id);
-        socketIdToRole.set(socket.id, 'host');
-        ack({ ok: true, sessionId: hostSession.id, role: 'host' });
-        emitSessionStatus(hostSession);
-        return;
-      }
-      const controllerSession = sessions.findByControllerToken(token);
-      if (controllerSession) {
-        // 이탈을 먼저 통지해야 호스트가 새 연결의 순번과 보정 기준을 초기화한다.
-        if (controllerSession.controllerSocketId) {
-          io.sockets.sockets.get(controllerSession.controllerSocketId)?.disconnect(true);
+        const controllerSession = sessions.findByControllerToken(token);
+        if (controllerSession) {
+          // 다른 QR을 연 폰의 이전 복구 토큰으로 엉뚱한 호스트에 연결하지 않는다.
+          if (
+            payload.inviteToken !== undefined &&
+            payload.inviteToken !== controllerSession.inviteToken
+          ) {
+            ack({ ok: false, error: 'invalid_token' });
+            return;
+          }
+          // 이탈을 먼저 통지해야 호스트가 새 연결의 순번과 보정 기준을 초기화한다.
+          if (controllerSession.controllerSocketId) {
+            io.sockets.sockets.get(controllerSession.controllerSocketId)?.disconnect(true);
+          }
+          sessions.resumeController(controllerSession, socket.id);
+          socketIdToSessionId.set(socket.id, controllerSession.id);
+          socketIdToRole.set(socket.id, 'controller');
+          ack({ ok: true, sessionId: controllerSession.id, role: 'controller' });
+          emitSessionStatus(controllerSession);
+          return;
         }
-        sessions.resumeController(controllerSession, socket.id);
-        socketIdToSessionId.set(socket.id, controllerSession.id);
-        socketIdToRole.set(socket.id, 'controller');
-        ack({ ok: true, sessionId: controllerSession.id, role: 'controller' });
-        emitSessionStatus(controllerSession);
-        return;
-      }
-      ack({ ok: false, error: 'invalid_token' });
-    });
+        ack({ ok: false, error: 'invalid_token' });
+      },
+    );
 
     socket.on(SOCKET_EVENTS.sessionReplaceController, () => {
       const sessionId = socketIdToSessionId.get(socket.id);

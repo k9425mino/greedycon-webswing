@@ -87,6 +87,8 @@ export function updateRopeLine(line: THREE.Line, from: Vec3, to: Vec3 | null): v
   positions.setXYZ(0, from[0], from[1], from[2]);
   positions.setXYZ(1, to[0], to[1], to[2]);
   positions.needsUpdate = true;
+  // 정점 이동만으로는 프러스텀 판정에 쓰는 경계가 갱신되지 않는다.
+  line.geometry.computeBoundingSphere();
 }
 
 // 카메라는 플레이어 위치를 따라가되 회전은 물려받지 않는다(ARCHITECTURE 5절: 항상 도로 전방).

@@ -196,6 +196,36 @@ test('연결부터 입력 표시, 두 번째 컨트롤러 거절까지', async (
   await hostContext.close();
 });
 
+test('같은 폰에서 다른 QR을 열면 이전 세션 대신 새 호스트에 연결한다', async ({
+  browser,
+  baseURL,
+}) => {
+  const firstHost = io(baseURL!, { forceNew: true });
+  const secondHost = io(baseURL!, { forceNew: true });
+  const context = await browser.newContext();
+  try {
+    const first = await firstHost.timeout(5000).emitWithAck('session:create', {});
+    const second = await secondHost.timeout(5000).emitWithAck('session:create', {});
+    const page = await context.newPage();
+    await mockOrientationPermission(page, 'granted');
+    await page.goto(`/controller/?invite=${first.inviteToken}`);
+    await page.click('#btn-permission');
+    await expect(page.locator('#status-message')).toContainText('연결됨');
+
+    let secondConnected = false;
+    secondHost.on('session:status', (status) => {
+      secondConnected = status.controllerConnected;
+    });
+    await page.goto(`/controller/?invite=${second.inviteToken}`);
+    await page.click('#btn-permission');
+    await expect.poll(() => secondConnected).toBe(true);
+  } finally {
+    await context.close();
+    firstHost.disconnect();
+    secondHost.disconnect();
+  }
+});
+
 test('컨트롤러 리다이렉트가 초대 토큰을 유지한다', async ({ page }) => {
   await page.goto('/controller?invite=test-token');
   await expect(page).toHaveURL(/\/controller\/\?invite=test-token$/);

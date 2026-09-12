@@ -33,6 +33,7 @@ export class ControllerSocket {
     if (storedToken) {
       const resumeAck = await this.emitAck<SessionResumeAck>(SOCKET_EVENTS.sessionResume, {
         token: storedToken,
+        inviteToken,
       });
       if (resumeAck.ok && resumeAck.role === 'controller') {
         this.joined = true;
