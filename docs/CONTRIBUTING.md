@@ -2,7 +2,7 @@
 
 손목 웹슈터 웹스윙 게임 부스 프로젝트의 협업 규칙이다. 행사일은 2026-09-17, 기능 동결 목표는 2026-09-16 오전이다. 현재 개발자는 1명이며 행사 전 팀원이 합류할 수 있다. 짧은 기간에 맞춰 절차는 최소로 둔다.
 
-먼저 읽을 문서: [docs/PRD.md](docs/PRD.md) (무엇을 만드는가), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (어떻게 만드는가).
+먼저 읽을 문서: [docs/PRD.md](PRD.md) (무엇을 만드는가), [docs/ARCHITECTURE.md](ARCHITECTURE.md) (어떻게 만드는가).
 
 ## 1. 로컬 실행
 
