@@ -25,6 +25,7 @@
             <li>센서: <span id="status-sensor">-</span></li>
             <li>터치: <span id="status-touch">-</span></li>
             <li>단계: <span id="status-phase">pairing</span></li>
+            <li>물리: <span id="status-physics">초기화 중</span></li>
           </ul>
         </section>
 
@@ -38,6 +39,11 @@
 
         <section id="recovery-section" hidden>
           <p id="recovery-message"></p>
+        </section>
+
+        <section id="gameover-section" hidden>
+          <p>추락으로 종료되었습니다.</p>
+          <button id="btn-restart">재시작</button>
         </section>
 
         <section id="diagnostics-section">

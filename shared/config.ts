@@ -22,4 +22,32 @@ export const gameConfig = {
 
   // 세션 정리 (ARCHITECTURE 3절)
   emptySessionTtlMs: 10 * 60 * 1000,
+
+  // 물리 (ARCHITECTURE 5절 제안 초기값, 실기기 검증 전)
+  physics: {
+    fixedTimestepSec: 1 / 60,
+    maxStepsPerFrame: 5,
+    gravity: 9.81,
+    playerRadius: 0.4,
+    startHeight: 18,
+    forwardSpeed: 14,
+    attachPullSpeed: 2,
+    buildingRestitution: 0.2,
+    buildingFriction: 0.1,
+  },
+
+  // 발사·표적 (ARCHITECTURE 5절 제안 초기값)
+  web: {
+    fireEffectSec: 0.1,
+    minFireDistance: 3,
+    maxFireDistance: 70,
+  },
+
+  // 고정 연습 구간 (측정 전 시작점)
+  practiceArena: {
+    roadWidthM: 24,
+    buildingHeightM: 40,
+    buildingDepthM: 18,
+    startPositionZ: 0,
+  },
 } as const;

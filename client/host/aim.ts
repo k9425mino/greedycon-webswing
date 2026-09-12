@@ -43,6 +43,13 @@ export function clampAimAngles({ yawDeg, pitchDeg }: AimAngles): AimAngles {
   };
 }
 
+// yaw/pitch를 게임 월드 방향 벡터로 변환한다. 마우스 입력(mouseInput.ts)과 같은 좌표계(Y 위쪽, 전방 -Z)를 쓴다.
+export function anglesToDirection({ yawDeg, pitchDeg }: AimAngles): [number, number, number] {
+  const yaw = (yawDeg * Math.PI) / 180;
+  const pitch = (pitchDeg * Math.PI) / 180;
+  return [Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)];
+}
+
 // 화면 크로스헤어 위치(0~1 비율)로 변환. FOV 안쪽으로 매핑하고 clamp된 값은 가장자리에 붙는다.
 export function anglesToScreenRatio({ yawDeg, pitchDeg }: AimAngles): { x: number; y: number } {
   const halfFovV = gameConfig.cameraVerticalFovDeg / 2;
