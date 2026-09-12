@@ -18,11 +18,12 @@ import { buildControllerUrl, renderQr } from './qr';
 import { Calibration } from './calibration';
 import {
   anglesToDirection,
-  anglesToScreenRatio,
   clampAimAngles,
+  directionToScreenRatio,
   relativeRotation,
   relativeRotationToAngles,
 } from './aim';
+import { nextPendingResume } from './resumeState';
 import { RateCounter } from './diagnostics';
 import {
   addPracticeWorldMeshes,
@@ -35,7 +36,7 @@ import {
 import { isMouseInputEnabled, MouseAimInput } from './mouseInput';
 import { PhysicsWorld, type Vec3 } from './physics';
 import { createPracticeWorld } from './world';
-import { defaultSwingOptions, WebSwing } from './web';
+import { defaultSwingOptions, selectTarget, WebSwing } from './web';
 
 const qrImage = document.getElementById('qr-image') as HTMLImageElement;
 const inviteLink = document.getElementById('invite-link') as HTMLAnchorElement;
@@ -45,6 +46,7 @@ const statusTouch = document.getElementById('status-touch') as HTMLElement;
 const statusPhase = document.getElementById('status-phase') as HTMLElement;
 const statusPhysics = document.getElementById('status-physics') as HTMLElement;
 const crosshair = document.getElementById('crosshair') as HTMLElement;
+const targetMarker = document.getElementById('target-marker') as HTMLElement;
 const recoverySection = document.getElementById('recovery-section') as HTMLElement;
 const recoveryMessage = document.getElementById('recovery-message') as HTMLElement;
 const gameOverSection = document.getElementById('gameover-section') as HTMLElement;
@@ -164,7 +166,7 @@ function goToPlaying() {
 }
 
 function goToPaused(pauseReason: PauseReason) {
-  pendingResume = phase === 'playing';
+  pendingResume = nextPendingResume(pendingResume, phase);
   calibration.reset();
   setPhase('paused', pauseReason);
 }
@@ -231,24 +233,50 @@ function refreshStatusText() {
   diagRecvHz.textContent = String(recvRate.hz());
 }
 
+function directionTo(from: Vec3, to: Vec3): Vec3 {
+  const dx = to[0] - from[0];
+  const dy = to[1] - from[1];
+  const dz = to[2] - from[2];
+  const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+  return [dx / len, dy / len, dz / len];
+}
+
+// selectTarget과 동일한 후보·설정으로 부착 예정점을 미리 계산한다(발사 전 표적 표시).
+function computePreviewTarget() {
+  if (!physics || !swing || phase !== 'playing' || swing.phase !== 'idle') return null;
+  const origin = physics.getPlayerPosition();
+  return selectTarget(origin, currentAimDirection, world.candidates, physics, defaultSwingOptions());
+}
+
+// 조준점·표적 마커 모두 실제 발사 방향(currentAimDirection)을 카메라로 투영해 표시한다.
+// 표시는 읽기 전용이며 실제 발사 방향(swing.update에 넘기는 값)을 바꾸지 않는다.
 function updateCrosshair() {
-  if (mouseMode) {
-    crosshair.dataset.pressed = String(pressed);
-    crosshair.dataset.hasTarget = 'false';
-    return;
-  }
-  if (!latestOrientation || !calibration.q0) {
-    crosshair.dataset.pressed = String(pressed);
-    crosshair.dataset.hasTarget = 'false';
-    return;
-  }
-  const relative = relativeRotation(latestOrientation, calibration.q0);
-  const angles = clampAimAngles(relativeRotationToAngles(relative));
-  const ratio = anglesToScreenRatio(angles);
-  crosshair.style.left = `${ratio.x * 100}%`;
-  crosshair.style.top = `${ratio.y * 100}%`;
   crosshair.dataset.pressed = String(pressed);
-  crosshair.dataset.hasTarget = 'false';
+
+  const hasAim = mouseMode || (latestOrientation !== null && calibration.q0 !== null);
+  if (!hasAim) {
+    crosshair.dataset.hasTarget = 'false';
+    crosshair.dataset.onscreen = 'true';
+    targetMarker.hidden = true;
+    return;
+  }
+
+  const projection = directionToScreenRatio(currentAimDirection, sceneHandle.camera);
+  crosshair.style.left = `${projection.x * 100}%`;
+  crosshair.style.top = `${projection.y * 100}%`;
+  crosshair.dataset.onscreen = String(projection.onScreen);
+
+  const target = computePreviewTarget();
+  crosshair.dataset.hasTarget = String(target !== null);
+  if (target && physics) {
+    const toTarget = directionTo(physics.getPlayerPosition(), target.point);
+    const targetProjection = directionToScreenRatio(toTarget, sceneHandle.camera);
+    targetMarker.hidden = !targetProjection.onScreen;
+    targetMarker.style.left = `${targetProjection.x * 100}%`;
+    targetMarker.style.top = `${targetProjection.y * 100}%`;
+  } else {
+    targetMarker.hidden = true;
+  }
 }
 
 const hostSocket = new HostSocket({

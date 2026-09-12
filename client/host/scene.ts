@@ -11,12 +11,7 @@ export function createScene(canvas: HTMLCanvasElement) {
   scene.background = new THREE.Color(0x1a1a2e);
   scene.fog = new THREE.Fog(0x1a1a2e, 20, 150);
 
-  const camera = new THREE.PerspectiveCamera(
-    gameConfig.cameraVerticalFovDeg,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    500,
-  );
+  const camera = new THREE.PerspectiveCamera(gameConfig.cameraVerticalFovDeg, 1, 0.1, 500);
 
   const ambient = new THREE.AmbientLight(0xffffff, 0.9);
   scene.add(ambient);
@@ -24,10 +19,14 @@ export function createScene(canvas: HTMLCanvasElement) {
   sun.position.set(10, 30, 10);
   scene.add(sun);
 
+  // 캔버스의 부모(#game-area)가 운영자 패널을 제외한 실제 게임 영역이다.
+  const container = canvas.parentElement ?? canvas;
   function resize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    camera.aspect = width / height;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setSize(width, height);
   }
   window.addEventListener('resize', resize);
   resize();

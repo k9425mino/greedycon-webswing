@@ -8,8 +8,17 @@
   </head>
   <body>
     <div id="app">
-      <canvas id="scene"></canvas>
-      <div id="crosshair" class="crosshair" data-pressed="false" data-has-target="false"></div>
+      <div id="game-area">
+        <canvas id="scene"></canvas>
+        <div
+          id="crosshair"
+          class="crosshair"
+          data-pressed="false"
+          data-has-target="false"
+          data-onscreen="true"
+        ></div>
+        <div id="target-marker" class="target-marker" hidden></div>
+      </div>
 
       <aside id="panel">
         <section id="pairing-section">

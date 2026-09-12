@@ -50,11 +50,29 @@ export function anglesToDirection({ yawDeg, pitchDeg }: AimAngles): [number, num
   return [Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)];
 }
 
-// 화면 크로스헤어 위치(0~1 비율)로 변환. FOV 안쪽으로 매핑하고 clamp된 값은 가장자리에 붙는다.
-export function anglesToScreenRatio({ yawDeg, pitchDeg }: AimAngles): { x: number; y: number } {
-  const halfFovV = gameConfig.cameraVerticalFovDeg / 2;
-  const halfFovH = halfFovV; // 화면 비율은 CSS가 처리하므로 동일 반각 기준으로 정규화
-  const x = 0.5 + (yawDeg / halfFovH) * 0.5;
-  const y = 0.5 - (pitchDeg / halfFovV) * 0.5;
-  return { x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) };
+export type ScreenProjection = { x: number; y: number; onScreen: boolean };
+
+// 월드 방향(카메라는 항상 -Z를 보고 롤이 없다고 가정, mouseInput.ts의 투영과 역함수)을
+// 화면 비율(0~1)로 투영한다. 실제 발사 방향과 표시가 항상 일치하도록 조준점·표적 마커가 공용으로 쓴다.
+// FOV 밖이거나 카메라 뒤쪽이면 onScreen=false이며 좌표는 가장자리로 clamp된다.
+export function directionToScreenRatio(
+  direction: [number, number, number],
+  camera: { fov: number; aspect: number },
+): ScreenProjection {
+  const halfFovV = (camera.fov * Math.PI) / 360;
+  const tanHalfV = Math.tan(halfFovV);
+  const tanHalfH = tanHalfV * camera.aspect;
+
+  const [dx, dy, dz] = direction;
+  // 카메라 뒤쪽(dz >= 0)은 원근 투영으로 유한한 NDC를 만들 수 없다.
+  const onScreenSide = dz < -1e-6;
+  const scale = onScreenSide ? -1 / dz : Number.POSITIVE_INFINITY;
+  const ndcX = onScreenSide ? (dx * scale) / tanHalfH : Math.sign(dx) || 1;
+  const ndcY = onScreenSide ? (dy * scale) / tanHalfV : Math.sign(dy) || 1;
+
+  const onScreen = onScreenSide && Math.abs(ndcX) <= 1 && Math.abs(ndcY) <= 1;
+  const clampedX = Math.max(-1, Math.min(1, ndcX));
+  const clampedY = Math.max(-1, Math.min(1, ndcY));
+
+  return { x: 0.5 + clampedX * 0.5, y: 0.5 - clampedY * 0.5, onScreen };
 }

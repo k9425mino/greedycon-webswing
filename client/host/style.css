@@ -8,9 +8,17 @@ body {
 }
 
 #app {
-  position: relative;
+  display: flex;
   width: 100%;
   height: 100vh;
+  overflow: hidden;
+}
+
+#game-area {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
   overflow: hidden;
 }
 
@@ -42,10 +50,24 @@ body {
   border-color: #a6e22e;
 }
 
-#panel {
+/* 화면 밖 조준: 가장자리에 clamp된 위치에서 원 대신 마름모로 표시한다. */
+.crosshair[data-onscreen='false'] {
+  border-radius: 0;
+  transform: rotate(45deg);
+}
+
+.target-marker {
   position: absolute;
-  top: 0;
-  right: 0;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 2px solid #a6e22e;
+  pointer-events: none;
+}
+
+#panel {
+  position: static;
+  flex: 0 0 320px;
   width: 320px;
   max-height: 100vh;
   overflow-y: auto;

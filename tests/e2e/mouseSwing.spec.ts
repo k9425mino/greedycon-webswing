@@ -63,3 +63,33 @@ test('마우스 플레이: 건물을 겨눠 부착하면 거미줄이 표시된�
 
   await page.mouse.up();
 });
+
+test('마우스 플레이: 조준점이 마우스 위치를 따라가고 표적을 겨누면 마커가 표시된다', async ({
+  page,
+}) => {
+  await page.goto('/?input=mouse');
+  await expect(page.locator('#status-physics')).toHaveText('준비됨', { timeout: 15_000 });
+  await page.locator('#btn-start').click();
+  await expect(page.locator('#status-phase')).toHaveText('playing');
+
+  const canvas = page.locator('#scene');
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('canvas not found');
+
+  // 화면 중앙을 겨누면 조준점도 중앙 근처에 있어야 한다(발사 방향과 일치).
+  const centerX = box.x + box.width / 2;
+  const centerY = box.y + box.height / 2;
+  await page.mouse.move(centerX, centerY);
+  const crosshair = page.locator('#crosshair');
+  await expect
+    .poll(async () => {
+      const box2 = await crosshair.boundingBox();
+      return box2 ? Math.abs(box2.x + box2.width / 2 - centerX) : Infinity;
+    })
+    .toBeLessThan(5);
+
+  // 왼쪽 건물 방향(원거리 부착 후보)을 겨누면 표적 마커가 나타난다. 실제 발사(마우스 다운) 없이 미리보기만 확인한다.
+  await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.35);
+  await expect(page.locator('#target-marker')).toBeVisible({ timeout: 2000 });
+  await expect(crosshair).toHaveAttribute('data-has-target', 'true');
+});
