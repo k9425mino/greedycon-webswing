@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>손목 웹슈터 - 컨트롤러</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <p id="status-message">시작 버튼을 눌러 센서 권한을 허용하세요.</p>
+      <button id="btn-permission">시작 / 센서 권한 허용</button>
+      <div id="touch-area" data-pressed="false">
+        <span>중지·약지로 눌러 발사·유지</span>
+      </div>
+      <label>
+        전송 속도
+        <select id="select-rate">
+          <option value="30">30Hz</option>
+          <option value="60" selected>60Hz</option>
+          <option value="120">120Hz</option>
+        </select>
+      </label>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

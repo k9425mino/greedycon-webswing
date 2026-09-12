@@ -1,0 +1,51 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #0b0b12;
+  color: #eee;
+  font-family: system-ui, sans-serif;
+  touch-action: none;
+  overscroll-behavior: none;
+}
+
+#app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 12px;
+}
+
+#status-message {
+  min-height: 3em;
+}
+
+#btn-permission {
+  padding: 12px;
+  font-size: 16px;
+  margin-bottom: 12px;
+}
+
+#touch-area {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: #22223a;
+  border-radius: 12px;
+  touch-action: none;
+  user-select: none;
+  font-size: 20px;
+}
+
+#touch-area[data-pressed='true'] {
+  background: #f92672;
+}
+
+label {
+  margin-top: 12px;
+  display: flex;
+  justify-content: space-between;
+}

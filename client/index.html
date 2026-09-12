@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>손목 웹슈터 - 호스트</title>
+    <link rel="stylesheet" href="./host/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="scene"></canvas>
+      <div id="crosshair" class="crosshair" data-pressed="false" data-has-target="false"></div>
+
+      <aside id="panel">
+        <section id="pairing-section">
+          <h1>연결</h1>
+          <img id="qr-image" alt="컨트롤러 접속 QR" />
+          <p><a id="invite-link" target="_blank" rel="noopener"></a></p>
+        </section>
+
+        <section id="status-section">
+          <h2>상태</h2>
+          <ul>
+            <li>연결: <span id="status-connection">대기중</span></li>
+            <li>센서: <span id="status-sensor">-</span></li>
+            <li>터치: <span id="status-touch">-</span></li>
+            <li>단계: <span id="status-phase">pairing</span></li>
+          </ul>
+        </section>
+
+        <section id="controls-section">
+          <h2>운영자 조작</h2>
+          <button id="btn-calibrate">정면 보정</button>
+          <button id="btn-start">검증 시작</button>
+          <button id="btn-stop">검증 중지</button>
+          <button id="btn-switch-phone">폰 교체</button>
+        </section>
+
+        <section id="recovery-section" hidden>
+          <p id="recovery-message"></p>
+        </section>
+
+        <section id="diagnostics-section">
+          <h2>진단</h2>
+          <ul>
+            <li>센서 발생률: <span id="diag-sensor-hz">-</span> Hz</li>
+            <li>송신률: <span id="diag-send-hz">-</span> Hz</li>
+            <li>수신률: <span id="diag-recv-hz">-</span> Hz</li>
+          </ul>
+        </section>
+      </aside>
+    </div>
+    <script type="module" src="./host/main.ts"></script>
+  </body>
+</html>
