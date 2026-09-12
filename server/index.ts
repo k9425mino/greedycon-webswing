@@ -3,14 +3,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { Server } from 'socket.io';
-import {
-  SOCKET_EVENTS,
-  type ControllerStatus,
-  type HostState,
-  type InputFrame,
-} from '../shared/types';
+import { SOCKET_EVENTS, type InputFrame } from '../shared/types';
 import { SessionStore, type Session } from './session';
 import { isValidInputFrameShape } from '../shared/inputValidation';
+import { isValidControllerStatus, isValidHostState } from '../shared/stateValidation';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const serveStatic = process.argv.includes('--serve-static');
@@ -99,6 +95,9 @@ async function main() {
       const token = payload?.token ?? '';
       const hostSession = sessions.findByHostToken(token);
       if (hostSession) {
+        if (hostSession.hostSocketId) {
+          io.sockets.sockets.get(hostSession.hostSocketId)?.disconnect(true);
+        }
         sessions.resumeHost(hostSession, socket.id);
         socketIdToSessionId.set(socket.id, hostSession.id);
         socketIdToRole.set(socket.id, 'host');
@@ -108,6 +107,10 @@ async function main() {
       }
       const controllerSession = sessions.findByControllerToken(token);
       if (controllerSession) {
+        // 이탈을 먼저 통지해야 호스트가 새 연결의 순번과 보정 기준을 초기화한다.
+        if (controllerSession.controllerSocketId) {
+          io.sockets.sockets.get(controllerSession.controllerSocketId)?.disconnect(true);
+        }
         sessions.resumeController(controllerSession, socket.id);
         socketIdToSessionId.set(socket.id, controllerSession.id);
         socketIdToRole.set(socket.id, 'controller');
@@ -138,17 +141,8 @@ async function main() {
       io.to(session.hostSocketId).emit(SOCKET_EVENTS.controllerInput, frame);
     });
 
-    socket.on(SOCKET_EVENTS.controllerStatus, (status: ControllerStatus) => {
-      if (
-        !status ||
-        typeof status.sensorAvailable !== 'boolean' ||
-        typeof status.pageVisible !== 'boolean' ||
-        !Number.isFinite(status.sensorHz) ||
-        !Number.isFinite(status.sendHz) ||
-        status.sensorHz < 0 ||
-        status.sendHz < 0
-      )
-        return;
+    socket.on(SOCKET_EVENTS.controllerStatus, (status: unknown) => {
+      if (!isValidControllerStatus(status)) return;
       const sessionId = socketIdToSessionId.get(socket.id);
       const session = sessionId ? sessions.getById(sessionId) : undefined;
       if (!session || session.hostSocketId === null || session.controllerSocketId !== socket.id)
@@ -156,7 +150,8 @@ async function main() {
       io.to(session.hostSocketId).emit(SOCKET_EVENTS.controllerStatus, status);
     });
 
-    socket.on(SOCKET_EVENTS.hostState, (state: HostState) => {
+    socket.on(SOCKET_EVENTS.hostState, (state: unknown) => {
+      if (!isValidHostState(state)) return;
       const sessionId = socketIdToSessionId.get(socket.id);
       const session = sessionId ? sessions.getById(sessionId) : undefined;
       if (!session || session.controllerSocketId === null || session.hostSocketId !== socket.id)

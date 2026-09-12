@@ -39,8 +39,20 @@ test('서버는 역할이 다른 입력과 잘못된 상태를 중계하지 않�
     expect(joined.ok).toBe(true);
     const inputs: unknown[] = [];
     const statuses: unknown[] = [];
+    const hostStates: unknown[] = [];
     host.on('controller:input', (frame) => inputs.push(frame));
     host.on('controller:status', (status) => statuses.push(status));
+    controller.on('host:state', (state) => hostStates.push(state));
+    host.emit('host:state', null);
+    host.emit('host:state', { phase: 'unknown', calibrated: false });
+    host.emit('host:state', { phase: 'playing', calibrated: 'true' });
+    host.emit('host:state', { phase: 'paused', calibrated: false, reason: 'unknown' });
+    const state = { phase: 'paused', calibrated: false, reason: 'operator' };
+    host.emit('host:state', state);
+    await expect.poll(() => hostStates.length).toBeGreaterThan(0);
+    await host.timeout(5000).emitWithAck('session:create', {});
+    await expect.poll(() => hostStates.at(-1)).toEqual(state);
+    expect(hostStates).toEqual([state]);
     host.emit('controller:input', { seq: 1, orientation: [0, 0, 0, 1], pressed: true });
     await host.timeout(5000).emitWithAck('session:create', {});
     controller.emit('controller:status', null);
@@ -53,6 +65,53 @@ test('서버는 역할이 다른 입력과 잘못된 상태를 중계하지 않�
   } finally {
     host.disconnect();
     controller.disconnect();
+  }
+});
+
+test('살아 있는 소켓을 복구하면 이전 연결을 종료하고 새 입력 순번을 받을 수 있다', async ({
+  baseURL,
+}) => {
+  const host = io(baseURL!, { forceNew: true });
+  const controller = io(baseURL!, { forceNew: true });
+  const replacement = io(baseURL!, { forceNew: true });
+  const replacementHost = io(baseURL!, { forceNew: true });
+  try {
+    const session = await host.timeout(5000).emitWithAck('session:create', {});
+    const statuses: { controllerConnected: boolean }[] = [];
+    host.on('session:status', (status) => statuses.push(status));
+    const joined = await controller
+      .timeout(5000)
+      .emitWithAck('session:join', { inviteToken: session.inviteToken });
+    await expect.poll(() => statuses.map((status) => status.controllerConnected)).toEqual([true]);
+    statuses.length = 0;
+    const inputs: unknown[] = [];
+    host.on('controller:input', (frame) => inputs.push(frame));
+    const resumed = await replacement
+      .timeout(5000)
+      .emitWithAck('session:resume', { token: joined.controllerToken });
+    expect(resumed.ok).toBe(true);
+    await expect.poll(() => controller.connected).toBe(false);
+    await expect
+      .poll(() => statuses.map((status) => status.controllerConnected))
+      .toEqual([false, true]);
+    const frame = { seq: 1, orientation: [0, 0, 0, 1], pressed: false };
+    replacement.emit('controller:input', frame);
+    await expect.poll(() => inputs).toEqual([frame]);
+
+    const hostResumed = await replacementHost
+      .timeout(5000)
+      .emitWithAck('session:resume', { token: session.hostToken });
+    expect(hostResumed.ok).toBe(true);
+    await expect.poll(() => host.connected).toBe(false);
+    const newHostInputs: unknown[] = [];
+    replacementHost.on('controller:input', (input) => newHostInputs.push(input));
+    replacement.emit('controller:input', { ...frame, seq: 2 });
+    await expect.poll(() => newHostInputs).toEqual([{ ...frame, seq: 2 }]);
+  } finally {
+    host.disconnect();
+    controller.disconnect();
+    replacement.disconnect();
+    replacementHost.disconnect();
   }
 });
 
