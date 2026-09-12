@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import * as THREE from 'three';
-import { createRopeLine, updateRopeLine } from '../../client/host/scene';
+import { createChunkMeshes, createRopeLine, updateRopeLine } from '../../client/host/scene';
+import { buildChunk } from '../../client/host/world';
 
 it('이동한 거미줄이 카메라 안에 있으면 이전 위치의 경계 때문에 숨겨지지 않는다', () => {
   const line = createRopeLine(new THREE.Scene());
@@ -12,4 +13,18 @@ it('이동한 거미줄이 카메라 안에 있으면 이전 위치의 경계 �
   const frustum = new THREE.Frustum().setFromProjectionMatrix(camera.projectionMatrix);
   expect(frustum.intersectsObject(line)).toBe(true);
   line.geometry.dispose();
+});
+
+it('구간을 생성·회수해도 scene 객체 수가 누적되지 않는다', () => {
+  const scene = new THREE.Scene();
+  const chunkMeshes = createChunkMeshes(scene);
+
+  for (let index = 0; index < 20; index++) {
+    chunkMeshes.add(buildChunk(index));
+    if (index >= 3) chunkMeshes.remove(index - 3);
+  }
+  expect(scene.children.length).toBe(3);
+
+  for (let index = 17; index < 20; index++) chunkMeshes.remove(index);
+  expect(scene.children.length).toBe(0);
 });

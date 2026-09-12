@@ -18,6 +18,11 @@
           data-onscreen="true"
         ></div>
         <div id="target-marker" class="target-marker" hidden></div>
+        <div id="hud">
+          <div id="hud-score">0</div>
+          <div id="hud-speed">0 m/s</div>
+          <div id="hud-stall" hidden>전진하세요 <span id="hud-stall-left">0.0</span>초</div>
+        </div>
       </div>
 
       <aside id="panel">
@@ -51,7 +56,8 @@
         </section>
 
         <section id="gameover-section" hidden>
-          <p>추락으로 종료되었습니다.</p>
+          <p id="gameover-reason"></p>
+          <p>점수 <span id="gameover-score">0</span></p>
           <button id="btn-restart">재시작</button>
         </section>
 

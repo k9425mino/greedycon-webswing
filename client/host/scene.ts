@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { gameConfig } from '@shared/config';
-import type { PracticeWorld } from './world';
-import type { Vec3 } from './physics';
+import type { Chunk } from './world';
+import type { BoxSpec, Vec3 } from './physics';
 
 export function createScene(canvas: HTMLCanvasElement) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -44,20 +44,37 @@ const buildingMaterial = new THREE.MeshStandardMaterial({ color: 0x3a3a55 });
 const roadMaterial = new THREE.MeshStandardMaterial({ color: 0x22222e });
 const ropeMaterial = new THREE.LineBasicMaterial({ color: 0x66d9ef });
 
-export function addPracticeWorldMeshes(scene: THREE.Scene, world: PracticeWorld): void {
-  const road = new THREE.Mesh(
-    new THREE.BoxGeometry(world.roadWidth, 1, world.roadLengthZ),
-    roadMaterial,
-  );
-  road.position.set(0, -0.5, world.roadCenterZ);
-  scene.add(road);
+function boxMesh(spec: BoxSpec, material: THREE.Material): THREE.Mesh {
+  const [w, h, d] = spec.halfExtents;
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w * 2, h * 2, d * 2), material);
+  mesh.position.set(...spec.center);
+  return mesh;
+}
 
-  for (const building of world.buildings) {
-    const [w, h, d] = building.halfExtents;
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w * 2, h * 2, d * 2), buildingMaterial);
-    mesh.position.set(...building.center);
-    scene.add(mesh);
-  }
+// 구간 mesh는 Group 하나로 묶어 회수 시 통째로 제거한다.
+// material은 모듈 상수를 계속 공유하고 폐기하지 않는다(ARCHITECTURE 5절). geometry만 구간마다 폐기한다.
+export function createChunkMeshes(scene: THREE.Scene) {
+  const groups = new Map<number, THREE.Group>();
+
+  return {
+    add(chunk: Chunk): void {
+      if (groups.has(chunk.index)) return;
+      const group = new THREE.Group();
+      group.add(boxMesh(chunk.road, roadMaterial));
+      for (const building of chunk.buildings) group.add(boxMesh(building, buildingMaterial));
+      groups.set(chunk.index, group);
+      scene.add(group);
+    },
+    remove(chunkIndex: number): void {
+      const group = groups.get(chunkIndex);
+      if (!group) return;
+      for (const child of group.children) {
+        if (child instanceof THREE.Mesh) child.geometry.dispose();
+      }
+      scene.remove(group);
+      groups.delete(chunkIndex);
+    },
+  };
 }
 
 export function createPlayerMesh(scene: THREE.Scene): THREE.Mesh {

@@ -26,7 +26,7 @@ import {
 import { nextPendingResume } from './resumeState';
 import { RateCounter } from './diagnostics';
 import {
-  addPracticeWorldMeshes,
+  createChunkMeshes,
   createPlayerMesh,
   createRopeLine,
   createScene,
@@ -35,7 +35,8 @@ import {
 } from './scene';
 import { isMouseInputEnabled, MouseAimInput } from './mouseInput';
 import { PhysicsWorld, type Vec3 } from './physics';
-import { createPracticeWorld } from './world';
+import { ChunkedWorld, chunkIndexForZ } from './world';
+import { Progress } from './progress';
 import { defaultSwingOptions, selectTarget, WebSwing } from './web';
 
 const qrImage = document.getElementById('qr-image') as HTMLImageElement;
@@ -50,6 +51,12 @@ const targetMarker = document.getElementById('target-marker') as HTMLElement;
 const recoverySection = document.getElementById('recovery-section') as HTMLElement;
 const recoveryMessage = document.getElementById('recovery-message') as HTMLElement;
 const gameOverSection = document.getElementById('gameover-section') as HTMLElement;
+const gameOverReason = document.getElementById('gameover-reason') as HTMLElement;
+const gameOverScore = document.getElementById('gameover-score') as HTMLElement;
+const hudScore = document.getElementById('hud-score') as HTMLElement;
+const hudSpeed = document.getElementById('hud-speed') as HTMLElement;
+const hudStall = document.getElementById('hud-stall') as HTMLElement;
+const hudStallLeft = document.getElementById('hud-stall-left') as HTMLElement;
 const diagSensorHz = document.getElementById('diag-sensor-hz') as HTMLElement;
 const diagSendHz = document.getElementById('diag-send-hz') as HTMLElement;
 const diagRecvHz = document.getElementById('diag-recv-hz') as HTMLElement;
@@ -88,8 +95,7 @@ const seqTracker = createSeqTracker();
 const sensorRate = new RateCounter();
 const recvRate = new RateCounter();
 
-// --- 물리·월드·거미줄 (고정 연습 구간, ARCHITECTURE 5절) ---
-const world = createPracticeWorld();
+// --- 물리·월드·거미줄 (무한 도로, ARCHITECTURE 5절) ---
 let physics: PhysicsWorld | null = null;
 let swing: WebSwing | null = null;
 let attachedPoint: Vec3 | null = null;
@@ -99,14 +105,31 @@ let lastFrameAt: number | null = null;
 
 const playerMesh = createPlayerMesh(sceneHandle.scene);
 const ropeLine = createRopeLine(sceneHandle.scene);
-addPracticeWorldMeshes(sceneHandle.scene, world);
+const chunkMeshes = createChunkMeshes(sceneHandle.scene);
+const progress = new Progress();
+
+// 구간 생성·회수는 렌더 mesh와 물리 콜라이더를 같은 단위로 함께 붙였다 뗀다.
+const world = new ChunkedWorld({
+  onAdd: (chunk) => {
+    chunkMeshes.add(chunk);
+    physics?.addChunk(chunk.index, chunk.road, chunk.buildings);
+  },
+  onRemove: (chunkIndex) => {
+    chunkMeshes.remove(chunkIndex);
+    physics?.removeChunk(chunkIndex);
+  },
+});
+
+// TODO: ARCHITECTURE 5절의 1,000m 좌표 재기준화는 아직 구현하지 않았다. 부착 중인 joint·앵커·보간
+// 상태를 한 프레임에 함께 옮겨야 해 스윙 중 위험이 크고, 이 게임 길이(수 분)에서는 f32 해상도가 충분하다.
+// 장시간 실행에서 좌표 정밀도 문제가 관측되면 구현한다.
 
 PhysicsWorld.create()
   .then((created) => {
     physics = created;
-    physics.createGround(world.roadWidth, world.roadLengthZ, world.roadCenterZ);
-    physics.createBuildings(world.buildings);
     physics.createPlayer(world.startPosition);
+    world.reset();
+    progress.reset(world.startPosition[2]);
     swing = new WebSwing(physics, world.candidates, defaultSwingOptions());
     physicsReady = true;
     statusPhysics.textContent = '준비됨';
@@ -126,6 +149,10 @@ function setPhase(next: GamePhase, nextReason?: PauseReason) {
   gameOverSection.hidden = phase !== 'gameOver';
   if (phase === 'paused' && reason) {
     recoveryMessage.textContent = RECOVERY_MESSAGES[reason] ?? '';
+  }
+  if (phase === 'gameOver' && reason) {
+    gameOverReason.textContent = RECOVERY_MESSAGES[reason] ?? '';
+    gameOverScore.textContent = String(progress.score);
   }
   sendHostState();
 }
@@ -150,6 +177,14 @@ function goToReady() {
   setPhase('ready');
 }
 
+// 새 게임 준비: 위치·월드 구간·점수·정체 타이머를 모두 초기화한다(GM-07). 재개에서는 호출하지 않는다.
+function resetRun() {
+  if (!physics) return;
+  physics.setPlayerPosition(world.startPosition);
+  world.reset();
+  progress.reset(world.startPosition[2]);
+}
+
 function goToPlaying() {
   if (!canStartPlaying()) return;
   if (!physics || !swing) return;
@@ -157,7 +192,7 @@ function goToPlaying() {
   attachedPoint = null;
   swing.reset(pressed);
   if (!pendingResume) {
-    physics.setPlayerPosition(world.startPosition);
+    resetRun();
     physics.setPlayerVelocity([0, 0, -gameConfig.physics.forwardSpeed]);
   }
   pendingResume = false;
@@ -363,7 +398,7 @@ btnSwitchPhone.addEventListener('click', () => {
 btnRestart.addEventListener('click', () => {
   if (phase !== 'gameOver' || !physics || !swing) return;
   physics.detach();
-  physics.setPlayerPosition(world.startPosition);
+  resetRun();
   physics.setPlayerVelocity([0, 0, 0]);
   swing.reset(pressed);
   attachedPoint = null;
@@ -411,7 +446,27 @@ function stepPhysicsFixed(nowSec: number) {
     physics.detach();
     attachedPoint = null;
     goToGameOver('fall');
+    return;
   }
+
+  // 점수·정체는 실제 수행한 물리 step으로만 증가한다(ARCHITECTURE 5절).
+  progress.step(gameConfig.physics.fixedTimestepSec, physics.getPlayerPosition()[2]);
+  if (progress.stallState === 'ended') {
+    physics.detach();
+    attachedPoint = null;
+    goToGameOver('stalled');
+  }
+}
+
+function updateHud() {
+  hudScore.textContent = String(progress.score);
+  if (physics) {
+    const [vx, vy, vz] = physics.getPlayerVelocity();
+    hudSpeed.textContent = `${Math.round(Math.sqrt(vx * vx + vy * vy + vz * vz))} m/s`;
+  }
+  const warning = phase === 'playing' && progress.stallState === 'warning';
+  hudStall.hidden = !warning;
+  if (warning) hudStallLeft.textContent = progress.stallSecondsLeft.toFixed(1);
 }
 
 function frameLoop(nowMs: number) {
@@ -438,6 +493,14 @@ function frameLoop(nowMs: number) {
     }
     if (steps === gameConfig.physics.maxStepsPerFrame) physicsAccumulatorSec = 0;
   }
+
+  if (physics && physicsReady) {
+    // 부착 중인 앵커가 속한 구간은 회수하지 않는다.
+    const attachedChunkIndex = attachedPoint === null ? null : chunkIndexForZ(attachedPoint[2]);
+    world.update(physics.getPlayerPosition()[2], attachedChunkIndex);
+  }
+
+  updateHud();
 
   if (physics) {
     const alpha =

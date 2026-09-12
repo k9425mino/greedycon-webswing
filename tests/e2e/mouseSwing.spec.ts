@@ -38,6 +38,32 @@ test('마우스 플레이: 새 게임, 추락, 재시작', async ({ page }) => {
   await expect(btnStart).toBeEnabled();
 });
 
+test('마우스 플레이: 점수가 진행 중에만 증가하고 종료 화면에 결과가 남는다', async ({ page }) => {
+  await page.goto('/?input=mouse');
+  await expect(page.locator('#status-physics')).toHaveText('준비됨', { timeout: 15_000 });
+
+  const hudScore = page.locator('#hud-score');
+  await expect(hudScore).toHaveText('0');
+
+  await page.locator('#btn-start').click();
+  await expect(page.locator('#status-phase')).toHaveText('playing');
+  await expect.poll(async () => Number(await hudScore.textContent())).toBeGreaterThan(0);
+
+  // 추락으로 종료된 뒤에는 점수가 더 늘지 않는다.
+  await expect(page.locator('#status-phase')).toHaveText('gameOver', { timeout: 15_000 });
+  const finalScore = Number(await hudScore.textContent());
+  await page.waitForTimeout(1000);
+  expect(Number(await hudScore.textContent())).toBe(finalScore);
+
+  await expect(page.locator('#gameover-reason')).toHaveText('추락으로 종료되었습니다.');
+  await expect(page.locator('#gameover-score')).toHaveText(String(finalScore));
+
+  // 재시작하면 점수가 초기화된다.
+  await page.locator('#btn-restart').click();
+  await expect(page.locator('#status-phase')).toHaveText('ready');
+  await expect(hudScore).toHaveText('0');
+});
+
 test('마우스 플레이: 건물을 겨눠 부착하면 거미줄이 표시된다', async ({ page }) => {
   await page.goto('/?input=mouse');
   await expect(page.locator('#status-physics')).toHaveText('준비됨', { timeout: 15_000 });

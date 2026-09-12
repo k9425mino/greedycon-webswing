@@ -65,6 +65,32 @@ body {
   pointer-events: none;
 }
 
+#hud {
+  position: absolute;
+  top: 16px;
+  left: 24px;
+  pointer-events: none;
+  text-shadow: 0 1px 3px #000;
+}
+
+#hud-score {
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+#hud-speed {
+  font-size: 16px;
+  color: #bbb;
+}
+
+#hud-stall {
+  margin-top: 8px;
+  font-size: 20px;
+  font-weight: 700;
+  color: #f92672;
+}
+
 #panel {
   position: static;
   flex: 0 0 320px;

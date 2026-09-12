@@ -4,7 +4,7 @@ import type { TargetHit, TargetQuery } from './web';
 
 export type Vec3 = [number, number, number];
 
-export type BuildingSpec = {
+export type BoxSpec = {
   center: Vec3;
   halfExtents: Vec3;
 };
@@ -22,8 +22,9 @@ export class PhysicsWorld implements TargetQuery {
   private eventQueue: RAPIER.EventQueue;
   private player!: RAPIER.RigidBody;
   private playerCollider!: RAPIER.Collider;
-  private groundColliderHandle = -1;
+  private groundColliderHandles = new Set<number>();
   private buildingColliderHandles = new Set<number>();
+  private chunkBodies = new Map<number, RAPIER.RigidBody[]>();
   private anchor: { body: RAPIER.RigidBody; joint: RAPIER.ImpulseJoint } | null = null;
 
   private prevPosition: Vec3 = [0, 0, 0];
@@ -41,19 +42,23 @@ export class PhysicsWorld implements TargetQuery {
     this.eventQueue = new RAPIER.EventQueue(true);
   }
 
-  createGround(roadWidth: number, roadLengthZ: number, centerZ: number): void {
-    const thickness = 1;
-    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
-    const collider = this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(roadWidth / 2, thickness / 2, roadLengthZ / 2)
-        .setTranslation(0, -thickness / 2, centerZ)
-        .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
-      body,
-    );
-    this.groundColliderHandle = collider.handle;
-  }
+  // 무한 도로는 구간 단위로 콜라이더를 붙였다 뗀다. 한 구간의 body를 모아 두고 회수 시 함께 제거한다.
+  addChunk(chunkIndex: number, road: BoxSpec, buildings: BoxSpec[]): void {
+    if (this.chunkBodies.has(chunkIndex)) return;
+    const bodies: RAPIER.RigidBody[] = [];
 
-  createBuildings(buildings: BuildingSpec[]): void {
+    const roadBody = this.world.createRigidBody(
+      RAPIER.RigidBodyDesc.fixed().setTranslation(...road.center),
+    );
+    const roadCollider = this.world.createCollider(
+      RAPIER.ColliderDesc.cuboid(...road.halfExtents).setActiveEvents(
+        RAPIER.ActiveEvents.COLLISION_EVENTS,
+      ),
+      roadBody,
+    );
+    this.groundColliderHandles.add(roadCollider.handle);
+    bodies.push(roadBody);
+
     for (const building of buildings) {
       const body = this.world.createRigidBody(
         RAPIER.RigidBodyDesc.fixed().setTranslation(...building.center),
@@ -65,7 +70,24 @@ export class PhysicsWorld implements TargetQuery {
         body,
       );
       this.buildingColliderHandles.add(collider.handle);
+      bodies.push(body);
     }
+
+    this.chunkBodies.set(chunkIndex, bodies);
+  }
+
+  removeChunk(chunkIndex: number): void {
+    const bodies = this.chunkBodies.get(chunkIndex);
+    if (!bodies) return;
+    for (const body of bodies) {
+      for (let i = 0; i < body.numColliders(); i++) {
+        const handle = body.collider(i).handle;
+        this.groundColliderHandles.delete(handle);
+        this.buildingColliderHandles.delete(handle);
+      }
+      this.world.removeRigidBody(body);
+    }
+    this.chunkBodies.delete(chunkIndex);
   }
 
   createPlayer(position: Vec3): void {
@@ -120,7 +142,7 @@ export class PhysicsWorld implements TargetQuery {
     this.groundedThisStep = false;
     this.eventQueue.drainCollisionEvents((handle1, handle2, started) => {
       if (!started) return;
-      if (handle1 === this.groundColliderHandle || handle2 === this.groundColliderHandle) {
+      if (this.groundColliderHandles.has(handle1) || this.groundColliderHandles.has(handle2)) {
         this.groundedThisStep = true;
       }
     });

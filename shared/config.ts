@@ -43,11 +43,25 @@ export const gameConfig = {
     maxFireDistance: 70,
   },
 
-  // 고정 연습 구간 (측정 전 시작점)
-  practiceArena: {
+  // 무한 도로 구간 (ARCHITECTURE 5절 제안 초기값, 측정 전 시작점)
+  world: {
     roadWidthM: 24,
-    buildingHeightM: 40,
+    chunkLengthM: 60,
+    chunksAhead: 4,
+    chunksBehind: 2,
+    buildingHeightRangeM: [30, 50],
+    buildingHalfWidthXM: 6,
     buildingDepthM: 18,
+    buildingGapRangeM: [2, 6],
     startPositionZ: 0,
+    seed: 20260917,
+  },
+
+  // 점수·정체 (PRD 5절 제안 초기값)
+  progress: {
+    scorePerSecond: 10,
+    stallResetDistanceM: 5,
+    stallWarnSec: 5,
+    stallEndSec: 8,
   },
 } as const;
