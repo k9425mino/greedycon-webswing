@@ -6,17 +6,33 @@
 
 ## 1. 로컬 실행
 
-아래 명령은 ARCHITECTURE의 기술 선택(TypeScript + Vite + Express + Socket.IO)을 전제로 미리 적은 것이다. **첫 구현 후 실제 명령으로 갱신한다.**
+Windows에서는 `npm.cmd`를 쓴다(예: `npm.cmd run dev`). 아래는 실제로 실행해 확인한 명령이다(Node.js v24.19.0, Windows 11).
 
 ```bash
 npm install
 npm run dev
 ```
 
-- 노트북 게임: `/`
-- 스마트폰 컨트롤러: `/controller` (QR로 접속)
+- 노트북 게임: `http://localhost:5173/`
+- 스마트폰 컨트롤러: `http://localhost:5173/controller` (QR로 접속, `/controller`는 `/controller/`로 자동 리다이렉트)
 
-스마트폰 방향 센서는 HTTPS에서만 동작한다. 로컬 개발에서도 폰으로 접속하려면 HTTP로는 안 되고, 자체 서명 인증서나 터널(ngrok 등) 중 하나가 필요하다. 사용할 방법이 정해지면 여기에 명령과 주의사항을 적는다.
+빌드 후 정적 파일로 실행하려면:
+
+```bash
+npm run build
+npm run start
+```
+
+`npm run typecheck`, `npm run test:unit`(Vitest), `npm run test:e2e`(Playwright)로 검증한다. `npm run format`은 `client/`, `server/`, `shared/`, `tests/`, 설정 파일에만 적용된다(`docs/`, 루트 `*.md`는 `.prettierignore`로 제외).
+
+스마트폰 방향 센서는 HTTPS에서만 동작한다. 로컬 개발에서 폰으로 접속하려면 cloudflared 임시 터널을 쓴다.
+
+1. cloudflared를 설치한다(Windows: `winget install --id Cloudflare.cloudflared`).
+2. `npm run dev`로 서버를 띄운 채 별도 터미널에서 `npm run tunnel`을 실행한다.
+3. 출력된 `https://<임의문자열>.trycloudflare.com` 주소를 **노트북 브라우저에서도** 열어 그 주소로 접속한다. QR은 접속한 origin을 그대로 사용하므로, localhost로 열면 QR도 localhost를 가리켜 폰에서 접속할 수 없다.
+4. 터널 주소는 매번 새로 발급되는 임시 URL이라 재실행할 때마다 바뀐다. 행사 운영용 배포는 후속으로 결정한다.
+
+확인 조건: Node.js v24.19.0, Windows 11, cloudflared 2026.9.1(quick tunnel)으로 `npm run dev` + `npm run tunnel` 조합의 HTTPS 접속과 `npm run build`/`npm run start`를 확인했다. 실제 iPhone·Android 접속은 아직 실기기로 확인하지 않았다.
 
 ## 2. 브랜치와 커밋
 
