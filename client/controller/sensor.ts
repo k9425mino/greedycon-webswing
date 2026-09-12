@@ -36,6 +36,7 @@ export function applyScreenOrientation(
 export type PermissionResult = 'granted' | 'denied' | 'unavailable';
 
 export async function requestOrientationPermission(): Promise<PermissionResult> {
+  if (typeof DeviceOrientationEvent === 'undefined') return 'unavailable';
   const RequestingEvent = DeviceOrientationEvent as unknown as {
     requestPermission?: () => Promise<'granted' | 'denied'>;
   };
@@ -80,7 +81,13 @@ export class SensorTracker {
   private onEvent: (() => void) | undefined;
 
   private handleEvent = (event: DeviceOrientationEvent): void => {
-    if (event.alpha === null || event.beta === null || event.gamma === null) return;
+    if (
+      event.alpha === null ||
+      event.beta === null ||
+      event.gamma === null ||
+      ![event.alpha, event.beta, event.gamma].every(Number.isFinite)
+    )
+      return;
     const deviceQuaternion = orientationToQuaternion(event.alpha, event.beta, event.gamma);
     const screenAngle = window.screen.orientation?.angle ?? 0;
     this.latest = applyScreenOrientation(deviceQuaternion, screenAngle);

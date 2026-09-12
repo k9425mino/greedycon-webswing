@@ -61,7 +61,7 @@ export class SessionStore {
 
   // 활성 컨트롤러가 이미 연결되어 있으면 거절한다(OP-01).
   joinController(session: Session, socketId: string): { ok: true } | { ok: false } {
-    if (session.controllerSocketId !== null) {
+    if (session.controllerToken !== null) {
       return { ok: false };
     }
     session.controllerSocketId = socketId;

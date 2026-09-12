@@ -71,6 +71,7 @@ function setPhase(next: GamePhase, nextReason?: PauseReason) {
   phase = next;
   reason = nextReason;
   statusPhase.textContent = phase;
+  refreshStatusText();
   recoverySection.hidden = phase !== 'paused';
   if (phase === 'paused' && reason) {
     recoveryMessage.textContent = RECOVERY_MESSAGES[reason] ?? '';
@@ -90,6 +91,7 @@ function goToPairing() {
 }
 
 function goToCalibrating() {
+  calibration.reset();
   setPhase('calibrating');
 }
 
@@ -98,8 +100,7 @@ function goToReady() {
 }
 
 function goToPlaying() {
-  if (phase !== 'ready') return;
-  lastInputAt = performance.now();
+  if (phase !== 'ready' || !inputReady() || pressed) return;
   setPhase('playing');
 }
 
@@ -113,12 +114,34 @@ function maybeRecover() {
   const connected = controllerConnected;
   const sensorOk = controllerStatus?.sensorAvailable ?? false;
   const visible = controllerStatus?.pageVisible ?? false;
-  if (connected && sensorOk && visible) {
+  if (connected && sensorOk && visible && inputReady()) {
     goToCalibrating();
   }
 }
 
+function inputReady(): boolean {
+  return (
+    controllerConnected &&
+    controllerStatus?.sensorAvailable === true &&
+    controllerStatus.pageVisible &&
+    !document.hidden &&
+    lastInputAt !== null &&
+    performance.now() - lastInputAt <= gameConfig.inputLostTimeoutMs
+  );
+}
+
+function clearInput() {
+  seqTracker.lastSeq = null;
+  latestOrientation = null;
+  lastInputAt = null;
+  controllerStatus = null;
+  pressed = false;
+  updateCrosshair();
+}
+
 function refreshStatusText() {
+  btnCalibrate.disabled = phase !== 'calibrating' || !inputReady() || pressed;
+  btnStart.disabled = phase !== 'ready' || !inputReady() || pressed;
   statusConnection.textContent = controllerConnected ? '연결됨' : '대기중';
   statusSensor.textContent = controllerStatus?.sensorAvailable ? '정상' : '없음';
   statusTouch.textContent = pressed ? '누름' : '해제';
@@ -144,6 +167,9 @@ function updateCrosshair() {
 }
 
 const hostSocket = new HostSocket({
+  onReconnect: () => {
+    void init();
+  },
   onInput: (frame: InputFrame) => {
     if (!isValidInputFrameShape(frame)) return;
     if (!acceptSeq(seqTracker, frame.seq)) return;
@@ -151,6 +177,7 @@ const hostSocket = new HostSocket({
     pressed = frame.pressed;
     lastInputAt = performance.now();
     recvRate.tick();
+    maybeRecover();
     refreshStatusText();
     updateCrosshair();
   },
@@ -159,7 +186,7 @@ const hostSocket = new HostSocket({
     sensorRate.tick();
     if (phase === 'playing' && !status.sensorAvailable) {
       goToPaused('sensorUnavailable');
-    } else if (phase === 'ready' && !status.sensorAvailable) {
+    } else if (phase === 'ready' && (!status.sensorAvailable || !status.pageVisible)) {
       goToCalibrating();
     } else if (phase === 'playing' && !status.pageVisible) {
       goToPaused('hidden');
@@ -171,12 +198,14 @@ const hostSocket = new HostSocket({
     const wasConnected = controllerConnected;
     controllerConnected = status.controllerConnected;
     if (!controllerConnected && wasConnected) {
+      clearInput();
       if (phase === 'playing') {
         goToPaused('inputLost');
       } else {
         goToPairing();
       }
     } else if (controllerConnected && !wasConnected) {
+      clearInput();
       goToCalibrating();
     }
     refreshStatusText();
@@ -184,8 +213,9 @@ const hostSocket = new HostSocket({
 });
 
 setInterval(() => {
+  refreshStatusText();
   if (
-    phase === 'playing' &&
+    (phase === 'playing' || phase === 'ready') &&
     lastInputAt !== null &&
     performance.now() - lastInputAt > gameConfig.inputLostTimeoutMs
   ) {
@@ -194,13 +224,13 @@ setInterval(() => {
 }, 100);
 
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden && phase === 'playing') {
+  if (document.hidden && (phase === 'playing' || phase === 'ready')) {
     goToPaused('hidden');
   }
 });
 
 btnCalibrate.addEventListener('click', () => {
-  if (phase !== 'calibrating' || !latestOrientation) return;
+  if (phase !== 'calibrating' || !latestOrientation || !inputReady()) return;
   if (calibration.calibrate(latestOrientation, pressed)) {
     goToReady();
   }
@@ -221,7 +251,7 @@ async function init() {
   inviteLink.href = controllerUrl;
   inviteLink.textContent = controllerUrl;
   await renderQr(qrImage, controllerUrl);
-  setPhase('pairing');
+  if (!controllerConnected) setPhase('pairing');
 }
 
 init();

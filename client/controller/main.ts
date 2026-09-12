@@ -136,34 +136,39 @@ selectRate.addEventListener('change', () => {
 });
 
 btnPermission.addEventListener('click', async () => {
-  const result = await requestOrientationPermission();
-  if (result === 'denied') {
-    statusMessage.textContent =
-      '센서 권한이 거부되었습니다. 브라우저 설정에서 허용한 뒤 새로고침하세요.';
-    return;
-  }
-  if (result === 'unavailable') {
-    statusMessage.textContent = '이 브라우저에서는 방향 센서를 사용할 수 없습니다.';
-    return;
-  }
-  sensor.start(() => {
-    sensorEventCounter.count += 1;
-  });
-  setTimeout(() => {
-    if (!sensor.available) {
-      statusMessage.textContent = '센서 이벤트가 수신되지 않습니다. 기기 설정을 확인하세요.';
+  btnPermission.disabled = true;
+  try {
+    const result = await requestOrientationPermission();
+    if (result === 'denied') {
+      statusMessage.textContent =
+        '센서 권한이 거부되었습니다. 브라우저 설정에서 허용한 뒤 새로고침하세요.';
+      return;
     }
-  }, 1500);
+    if (result === 'unavailable') {
+      statusMessage.textContent = '이 브라우저에서는 방향 센서를 사용할 수 없습니다.';
+      return;
+    }
+    sensor.start(() => {
+      sensorEventCounter.count += 1;
+    });
+    setTimeout(() => {
+      if (!sensor.available) {
+        statusMessage.textContent = '센서 이벤트가 수신되지 않습니다. 기기 설정을 확인하세요.';
+      }
+    }, 1500);
 
-  const joinResult = await controllerSocket.joinOrResume(inviteToken);
-  if (!joinResult.ok) {
-    statusMessage.textContent =
-      joinResult.error === 'controller_busy'
-        ? '이미 다른 폰이 연결되어 있습니다. 운영자에게 교체를 요청하세요.'
-        : '연결 정보가 올바르지 않습니다. QR을 다시 스캔하세요.';
-    return;
+    const joinResult = await controllerSocket.joinOrResume(inviteToken);
+    if (!joinResult.ok) {
+      statusMessage.textContent =
+        joinResult.error === 'controller_busy'
+          ? '이미 다른 폰이 연결되어 있습니다. 운영자에게 교체를 요청하세요.'
+          : '연결 정보가 올바르지 않습니다. QR을 다시 스캔하세요.';
+      return;
+    }
+    statusMessage.textContent = '연결됨. 정면을 향한 뒤 운영자의 보정을 기다리세요.';
+    startSendLoop();
+    setInterval(sendStatus, 500);
+  } finally {
+    btnPermission.disabled = sendTimer !== null;
   }
-  statusMessage.textContent = '연결됨. 정면을 향한 뒤 운영자의 보정을 기다리세요.';
-  startSendLoop();
-  setInterval(sendStatus, 500);
 });

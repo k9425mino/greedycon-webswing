@@ -20,6 +20,7 @@ export type HostSocketCallbacks = {
   onInput: (frame: InputFrame) => void;
   onControllerStatus: (status: ControllerStatus) => void;
   onSessionStatus: (status: { hostConnected: boolean; controllerConnected: boolean }) => void;
+  onReconnect: () => void;
 };
 
 export class HostSocket {
@@ -29,6 +30,14 @@ export class HostSocket {
   constructor(callbacks: HostSocketCallbacks) {
     this.callbacks = callbacks;
     this.socket = io({ autoConnect: true });
+    let connectedOnce = false;
+    this.socket.on('connect', () => {
+      if (connectedOnce) this.callbacks.onReconnect();
+      connectedOnce = true;
+    });
+    this.socket.on('disconnect', () =>
+      this.callbacks.onSessionStatus({ hostConnected: false, controllerConnected: false }),
+    );
     this.socket.on(SOCKET_EVENTS.controllerInput, (frame: InputFrame) =>
       this.callbacks.onInput(frame),
     );
@@ -65,10 +74,12 @@ export class HostSocket {
   }
 
   sendHostState(state: HostState): void {
+    if (!this.socket.connected) return;
     this.socket.emit(SOCKET_EVENTS.hostState, state);
   }
 
   requestReplaceController(): void {
+    if (!this.socket.connected) return;
     this.socket.emit(SOCKET_EVENTS.sessionReplaceController);
   }
 

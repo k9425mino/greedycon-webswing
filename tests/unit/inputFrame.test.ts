@@ -36,6 +36,17 @@ describe('isValidInputFrameShape', () => {
 });
 
 describe('acceptSeq', () => {
+  it.each([-1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
+    '잘못된 순번 %s는 기준을 변경하지 않는다',
+    (seq) => {
+      const tracker = createSeqTracker();
+      expect(acceptSeq(tracker, seq)).toBe(false);
+      expect(tracker.lastSeq).toBeNull();
+      expect(isValidInputFrameShape({ seq, orientation: [0, 0, 0, 1], pressed: false })).toBe(
+        false,
+      );
+    },
+  );
   it('증가하는 seq만 허용한다', () => {
     const tracker = createSeqTracker();
     expect(acceptSeq(tracker, 1)).toBe(true);
@@ -54,6 +65,14 @@ describe('acceptSeq', () => {
 });
 
 describe('normalizeQuaternion', () => {
+  it.each([Number.MAX_VALUE, Number.MIN_VALUE])(
+    '극단적인 유한 성분 %s도 단위 길이로 정규화한다',
+    (value) => {
+      const q = normalizeQuaternion([value, value, 0, 0]);
+      expect(Math.hypot(...q)).toBeCloseTo(1);
+      expect(q[0]).toBeCloseTo(Math.SQRT1_2);
+    },
+  );
   it('길이 1로 정규화한다', () => {
     const [x, y, z, w] = normalizeQuaternion([0, 0, 0, 2]);
     expect(x).toBeCloseTo(0);

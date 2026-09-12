@@ -10,6 +10,7 @@ import {
   type InputFrame,
 } from '../shared/types';
 import { SessionStore, type Session } from './session';
+import { isValidInputFrameShape } from '../shared/inputValidation';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const serveStatic = process.argv.includes('--serve-static');
@@ -25,7 +26,7 @@ async function main() {
   // app.get은 strict routing이 꺼져 있어 "/controller/"도 매칭해버리므로 경로를 직접 비교한다.
   app.use((req, res, next) => {
     if (req.path === '/controller') {
-      res.redirect(302, '/controller/');
+      res.redirect(302, '/controller/' + req.url.slice(req.path.length));
       return;
     }
     next();
@@ -60,6 +61,8 @@ async function main() {
 
   io.on('connection', (socket) => {
     socket.on(SOCKET_EVENTS.sessionCreate, (_payload, ack) => {
+      if (typeof ack !== 'function') return;
+      if (socketIdToSessionId.has(socket.id)) return ack({ ok: false, error: 'already_joined' });
       const session = sessions.create(socket.id);
       socketIdToSessionId.set(socket.id, session.id);
       socketIdToRole.set(socket.id, 'host');
@@ -72,6 +75,8 @@ async function main() {
     });
 
     socket.on(SOCKET_EVENTS.sessionJoin, (payload: { inviteToken?: string }, ack) => {
+      if (typeof ack !== 'function') return;
+      if (socketIdToSessionId.has(socket.id)) return ack({ ok: false, error: 'controller_busy' });
       const session = sessions.findByInviteToken(payload?.inviteToken ?? '');
       if (!session) {
         ack({ ok: false, error: 'invalid_invite' });
@@ -89,6 +94,8 @@ async function main() {
     });
 
     socket.on(SOCKET_EVENTS.sessionResume, (payload: { token?: string }, ack) => {
+      if (typeof ack !== 'function') return;
+      if (socketIdToSessionId.has(socket.id)) return ack({ ok: false, error: 'invalid_token' });
       const token = payload?.token ?? '';
       const hostSession = sessions.findByHostToken(token);
       if (hostSession) {
@@ -123,23 +130,37 @@ async function main() {
     });
 
     socket.on(SOCKET_EVENTS.controllerInput, (frame: InputFrame) => {
+      if (!isValidInputFrameShape(frame)) return;
       const sessionId = socketIdToSessionId.get(socket.id);
       const session = sessionId ? sessions.getById(sessionId) : undefined;
-      if (!session || session.hostSocketId === null) return;
+      if (!session || session.hostSocketId === null || session.controllerSocketId !== socket.id)
+        return;
       io.to(session.hostSocketId).emit(SOCKET_EVENTS.controllerInput, frame);
     });
 
     socket.on(SOCKET_EVENTS.controllerStatus, (status: ControllerStatus) => {
+      if (
+        !status ||
+        typeof status.sensorAvailable !== 'boolean' ||
+        typeof status.pageVisible !== 'boolean' ||
+        !Number.isFinite(status.sensorHz) ||
+        !Number.isFinite(status.sendHz) ||
+        status.sensorHz < 0 ||
+        status.sendHz < 0
+      )
+        return;
       const sessionId = socketIdToSessionId.get(socket.id);
       const session = sessionId ? sessions.getById(sessionId) : undefined;
-      if (!session || session.hostSocketId === null) return;
+      if (!session || session.hostSocketId === null || session.controllerSocketId !== socket.id)
+        return;
       io.to(session.hostSocketId).emit(SOCKET_EVENTS.controllerStatus, status);
     });
 
     socket.on(SOCKET_EVENTS.hostState, (state: HostState) => {
       const sessionId = socketIdToSessionId.get(socket.id);
       const session = sessionId ? sessions.getById(sessionId) : undefined;
-      if (!session || session.controllerSocketId === null) return;
+      if (!session || session.controllerSocketId === null || session.hostSocketId !== socket.id)
+        return;
       io.to(session.controllerSocketId).emit(SOCKET_EVENTS.hostState, state);
     });
 

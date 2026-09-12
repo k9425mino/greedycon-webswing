@@ -27,6 +27,17 @@ describe('SessionStore', () => {
     expect(found?.id).toBe(session.id);
   });
 
+  it('연결이 끊겨도 운영자가 교체하기 전에는 다른 폰이 차지할 수 없다', () => {
+    const session = store.create('host-1');
+    store.joinController(session, 'controller-1');
+    const token = session.controllerToken;
+    store.disconnectController(session);
+    expect(store.joinController(session, 'controller-2')).toEqual({ ok: false });
+    expect(session.controllerToken).toBe(token);
+    store.resumeController(session, 'controller-3');
+    expect(session.controllerSocketId).toBe('controller-3');
+  });
+
   it('폰 교체 후에는 새 컨트롤러가 join할 수 있다', () => {
     const session = store.create('host-1');
     store.joinController(session, 'controller-1');

@@ -14,13 +14,21 @@ export function isValidInputFrameShape(value: unknown): value is InputFrame {
   const frame = value as Record<string, unknown>;
   return (
     isFiniteNumber(frame.seq) &&
+    Number.isSafeInteger(frame.seq) &&
+    frame.seq >= 0 &&
     typeof frame.pressed === 'boolean' &&
     isQuaternion(frame.orientation)
   );
 }
 
 export function normalizeQuaternion([x, y, z, w]: Quaternion): Quaternion {
-  const length = Math.sqrt(x * x + y * y + z * z + w * w);
+  const scale = Math.max(Math.abs(x), Math.abs(y), Math.abs(z), Math.abs(w));
+  if (scale === 0) return [0, 0, 0, 1];
+  x /= scale;
+  y /= scale;
+  z /= scale;
+  w /= scale;
+  const length = Math.hypot(x, y, z, w);
   if (length === 0) return [0, 0, 0, 1];
   return [x / length, y / length, z / length, w / length];
 }
@@ -33,6 +41,7 @@ export function createSeqTracker(): SeqTracker {
 
 // 연결이 새로 시작되면(재연결·폰 교체) tracker를 새로 만들어 seq 기준을 리셋한다.
 export function acceptSeq(tracker: SeqTracker, seq: number): boolean {
+  if (!Number.isSafeInteger(seq) || seq < 0) return false;
   if (tracker.lastSeq !== null && seq <= tracker.lastSeq) return false;
   tracker.lastSeq = seq;
   return true;
