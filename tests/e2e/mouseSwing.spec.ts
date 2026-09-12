@@ -1,5 +1,20 @@
 import { test, expect } from '@playwright/test';
 
+test('마우스 플레이: 운영자 중지 후 시작 버튼으로 재개한다', async ({ page }) => {
+  await page.goto('/?input=mouse');
+  await expect(page.locator('#status-physics')).toHaveText('준비됨');
+  await page.locator('#btn-start').click();
+  await page.locator('#btn-stop').click();
+  await expect(page.locator('#status-phase')).toHaveText('paused');
+  await page.waitForTimeout(2200);
+  await expect(page.locator('#status-phase')).toHaveText('paused');
+  await expect(page.locator('#btn-start')).toBeEnabled();
+  await page.locator('#btn-start').click();
+  await expect(page.locator('#status-phase')).toHaveText('playing');
+  await expect(page.locator('#status-phase')).toHaveText('gameOver', { timeout: 15_000 });
+  await expect(page.locator('#btn-switch-phone')).toBeDisabled();
+});
+
 // 마우스 입력(?input=mouse)으로 물리·거미줄·추락·재시작을 검증한다.
 // 폰 없이 이번 세션에서 구현한 playing 동작을 확인하기 위한 개발용 경로다.
 test('마우스 플레이: 새 게임, 추락, 재시작', async ({ page }) => {

@@ -149,7 +149,7 @@ function goToReady() {
 }
 
 function goToPlaying() {
-  if (phase !== 'ready' || !inputReady() || pressed) return;
+  if (!canStartPlaying()) return;
   if (!physics || !swing) return;
   physics.detach();
   attachedPoint = null;
@@ -197,6 +197,15 @@ function inputReady(): boolean {
   );
 }
 
+function canStartPlaying(): boolean {
+  return (
+    (phase === 'ready' || (mouseMode && phase === 'paused')) &&
+    inputReady() &&
+    !pressed &&
+    physicsReady
+  );
+}
+
 function clearInput() {
   seqTracker.lastSeq = null;
   latestOrientation = null;
@@ -208,8 +217,13 @@ function clearInput() {
 
 function refreshStatusText() {
   btnCalibrate.disabled = mouseMode || phase !== 'calibrating' || !inputReady() || pressed;
-  btnStart.disabled = phase !== 'ready' || !inputReady() || pressed || !physicsReady;
-  statusConnection.textContent = mouseMode ? '마우스 입력' : controllerConnected ? '연결됨' : '대기중';
+  btnStart.disabled = !canStartPlaying();
+  btnSwitchPhone.disabled = mouseMode;
+  statusConnection.textContent = mouseMode
+    ? '마우스 입력'
+    : controllerConnected
+      ? '연결됨'
+      : '대기중';
   statusSensor.textContent = controllerStatus?.sensorAvailable ? '정상' : '없음';
   statusTouch.textContent = pressed ? '누름' : '해제';
   diagSensorHz.textContent = String(controllerStatus?.sensorHz ?? 0);
