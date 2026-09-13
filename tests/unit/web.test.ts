@@ -128,6 +128,44 @@ describe('WebSwing', () => {
     expect(attachCount).toBe(0);
   });
 
+  it('firing 시작 시 onFireStart를 한 번만 호출하고 pendingTargetPoint를 노출한다', () => {
+    const swing = makeSwing();
+    let fireStartCount = 0;
+    const callbacks = {
+      onFireStart: () => fireStartCount++,
+      onAttach: () => {},
+      onRelease: () => {},
+    };
+
+    expect(swing.pendingTargetPoint).toBeNull();
+    swing.update(true, 0, [0, 0, 0], [0, 0, -1], callbacks);
+    expect(swing.phase).toBe('firing');
+    expect(fireStartCount).toBe(1);
+    expect(swing.pendingTargetPoint).toEqual(target.point);
+
+    // 효과 시간 동안 계속 눌러도 다시 호출되지 않는다.
+    swing.update(true, 0.05, [0, 0, 0], [0, 0, -1], callbacks);
+    expect(fireStartCount).toBe(1);
+
+    swing.update(true, 0.1, [0, 0, 0], [0, 0, -1], callbacks);
+    expect(swing.phase).toBe('attached');
+    expect(swing.pendingTargetPoint).toBeNull();
+  });
+
+  it('표적이 없으면 onFireStart를 호출하지 않는다', () => {
+    const swing = makeSwing(query());
+    let fireStartCount = 0;
+    const callbacks = {
+      onFireStart: () => fireStartCount++,
+      onAttach: () => {},
+      onRelease: () => {},
+    };
+
+    swing.update(true, 0, [0, 0, 0], [0, 0, -1], callbacks);
+    expect(swing.phase).toBe('releasedRequired');
+    expect(fireStartCount).toBe(0);
+  });
+
   it('새로 reset할 때 이미 눌려있으면 자동 발사로 취급하지 않는다', () => {
     const swing = makeSwing();
     let attachCount = 0;

@@ -43,6 +43,12 @@ export const gameConfig = {
     maxFireDistance: 70,
   },
 
+  // 시각 효과의 기존 초기값. 실기기 체감 검증 전이다.
+  effects: {
+    attachFlashDurationMs: 220,
+    firePulsePerMs: 0.05,
+  },
+
   // 무한 도로 구간 (ARCHITECTURE 5절 제안 초기값, 측정 전 시작점)
   world: {
     roadWidthM: 24,

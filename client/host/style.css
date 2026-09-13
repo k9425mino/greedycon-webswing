@@ -28,6 +28,7 @@ body {
   display: block;
 }
 
+/* 밝은 하늘·건물 배경에서도 구분되도록 어두운 테두리를 겹쳐 대비를 준다. */
 .crosshair {
   position: absolute;
   top: 50%;
@@ -35,8 +36,9 @@ body {
   width: 24px;
   height: 24px;
   margin: -12px 0 0 -12px;
-  border: 2px solid #66d9ef;
+  border: 3px solid #66d9ef;
   border-radius: 50%;
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.65);
   pointer-events: none;
   transition: border-color 0.1s;
 }
@@ -61,7 +63,8 @@ body {
   width: 14px;
   height: 14px;
   margin: -7px 0 0 -7px;
-  border: 2px solid #a6e22e;
+  border: 3px solid #a6e22e;
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.65);
   pointer-events: none;
 }
 
@@ -131,4 +134,37 @@ body {
   background: #3a1a1a;
   padding: 8px;
   border-radius: 4px;
+}
+
+#guide-section {
+  background: #1a2a3a;
+  padding: 8px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+#guide-message {
+  margin: 0;
+  font-size: 14px;
+}
+
+#btn-mute {
+  background: #2a2a38;
+  color: #eee;
+}
+
+#diagnostics-section {
+  margin-top: 12px;
+  color: #999;
+  font-size: 13px;
+}
+
+#diagnostics-section summary {
+  cursor: pointer;
+  color: #999;
+  font-size: 13px;
+}
+
+#diagnostics-section ul {
+  margin: 8px 0 0;
 }

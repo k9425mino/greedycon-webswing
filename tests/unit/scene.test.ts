@@ -15,6 +15,27 @@ it('이동한 거미줄이 카메라 안에 있으면 이전 위치의 경계 �
   line.geometry.dispose();
 });
 
+it('같은 위치의 건물은 재생성해도 항상 같은 색을 받는다(결정적 장식 배치)', () => {
+  const scene = new THREE.Scene();
+  const chunkMeshes = createChunkMeshes(scene);
+  const chunk = buildChunk(2);
+
+  chunkMeshes.add(chunk);
+  const group = scene.children[0] as THREE.Group;
+  const colorsBefore = group.children
+    .filter((child): child is THREE.Mesh => child instanceof THREE.Mesh)
+    .map((mesh) => (mesh.material as THREE.MeshStandardMaterial).color?.getHex());
+  chunkMeshes.remove(chunk.index);
+
+  chunkMeshes.add(chunk);
+  const groupAfter = scene.children[0] as THREE.Group;
+  const colorsAfter = groupAfter.children
+    .filter((child): child is THREE.Mesh => child instanceof THREE.Mesh)
+    .map((mesh) => (mesh.material as THREE.MeshStandardMaterial).color?.getHex());
+
+  expect(colorsAfter).toEqual(colorsBefore);
+});
+
 it('구간을 생성·회수해도 scene 객체 수가 누적되지 않는다', () => {
   const scene = new THREE.Scene();
   const chunkMeshes = createChunkMeshes(scene);

@@ -81,6 +81,7 @@ export function selectTarget(
 }
 
 export type SwingCallbacks = {
+  onFireStart?: (target: TargetHit) => void;
   onAttach: (target: TargetHit) => void;
   onRelease: () => void;
 };
@@ -116,6 +117,7 @@ export class WebSwing {
         this.phase = 'firing';
         this.pendingTarget = target;
         this.fireStartedAt = nowSec;
+        callbacks.onFireStart?.(target);
       } else {
         this.phase = 'releasedRequired';
       }
@@ -165,6 +167,11 @@ export class WebSwing {
     this.phase = 'idle';
     this.pendingTarget = null;
     this.lastPressed = currentlyPressed;
+  }
+
+  // 발사 진행 중 표적점(시각 효과용). firing 단계가 아니면 null이다.
+  get pendingTargetPoint(): Vec3 | null {
+    return this.phase === 'firing' ? (this.pendingTarget?.point ?? null) : null;
   }
 }
 

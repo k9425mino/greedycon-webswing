@@ -26,11 +26,16 @@ import {
 import { nextPendingResume } from './resumeState';
 import { RateCounter } from './diagnostics';
 import {
+  createAttachFlash,
   createChunkMeshes,
+  createFireBeamLine,
   createPlayerMesh,
   createRopeLine,
   createScene,
+  showAttachFlashAt,
+  updateAttachFlash,
   updateCameraPosition,
+  updateFireBeamLine,
   updateRopeLine,
 } from './scene';
 import { isMouseInputEnabled, MouseAimInput } from './mouseInput';
@@ -38,6 +43,7 @@ import { PhysicsWorld, type Vec3 } from './physics';
 import { ChunkedWorld, chunkIndexForZ } from './world';
 import { Progress } from './progress';
 import { defaultSwingOptions, selectTarget, WebSwing } from './web';
+import { SfxPlayer } from './audio';
 
 const qrImage = document.getElementById('qr-image') as HTMLImageElement;
 const inviteLink = document.getElementById('invite-link') as HTMLAnchorElement;
@@ -63,8 +69,10 @@ const diagRecvHz = document.getElementById('diag-recv-hz') as HTMLElement;
 const btnCalibrate = document.getElementById('btn-calibrate') as HTMLButtonElement;
 const btnStart = document.getElementById('btn-start') as HTMLButtonElement;
 const btnStop = document.getElementById('btn-stop') as HTMLButtonElement;
+const btnMute = document.getElementById('btn-mute') as HTMLButtonElement;
 const btnSwitchPhone = document.getElementById('btn-switch-phone') as HTMLButtonElement;
 const btnRestart = document.getElementById('btn-restart') as HTMLButtonElement;
+const guideMessage = document.getElementById('guide-message') as HTMLElement;
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
 
 const mouseMode = isMouseInputEnabled();
@@ -79,6 +87,25 @@ const RECOVERY_MESSAGES: Record<PauseReason, string> = {
   stalled: '전진 정체로 종료되었습니다.',
   operator: '운영자가 중지했습니다.',
 };
+
+// 화면 단계별로 다음에 할 일을 안내한다(pairing/calibrating/ready/playing). paused·gameOver는
+// recovery-section·gameover-section이 각각 안내하므로 guide-section은 숨긴다.
+function guideMessageFor(currentPhase: GamePhase): string | null {
+  switch (currentPhase) {
+    case 'pairing':
+      return '폰으로 QR을 스캔해 접속하세요.';
+    case 'calibrating':
+      return '정면을 보고 화면에서 손가락을 뗀 뒤 "정면 보정"을 눌러주세요.';
+    case 'ready':
+      return '손목에 폰을 고정했다면 "게임 시작"을 눌러주세요.';
+    case 'playing':
+      return mouseMode
+        ? '건물을 겨누고 마우스 왼쪽 버튼을 눌러 거미줄을 발사하세요.'
+        : '건물을 겨누고 화면을 눌러 거미줄을 발사하세요. 손을 떼면 날아갑니다.';
+    default:
+      return null;
+  }
+}
 
 let phase: GamePhase = 'pairing';
 let reason: PauseReason | undefined;
@@ -105,8 +132,14 @@ let lastFrameAt: number | null = null;
 
 const playerMesh = createPlayerMesh(sceneHandle.scene);
 const ropeLine = createRopeLine(sceneHandle.scene);
+const fireBeamLine = createFireBeamLine(sceneHandle.scene);
+const attachFlash = createAttachFlash(sceneHandle.scene);
 const chunkMeshes = createChunkMeshes(sceneHandle.scene);
 const progress = new Progress();
+const sfx = new SfxPlayer();
+
+// 부착 순간에만 한 번 재생하는 짧은 원형 플래시(중복 방지: attachFlashStartMs로 진행 중 여부 판단).
+let attachFlashStartMs: number | null = null;
 
 // 구간 생성·회수는 렌더 mesh와 물리 콜라이더를 같은 단위로 함께 붙였다 뗀다.
 const world = new ChunkedWorld({
@@ -141,12 +174,21 @@ PhysicsWorld.create()
   });
 
 function setPhase(next: GamePhase, nextReason?: PauseReason) {
+  if (next !== 'playing') {
+    sfx.stopAll();
+    fireBeamLine.visible = false;
+    attachFlash.visible = false;
+    attachFlashStartMs = null;
+  }
   phase = next;
   reason = nextReason;
   statusPhase.textContent = phase;
   refreshStatusText();
   recoverySection.hidden = phase !== 'paused';
   gameOverSection.hidden = phase !== 'gameOver';
+  const guide = guideMessageFor(phase);
+  guideMessage.textContent = guide ?? '';
+  (guideMessage.parentElement as HTMLElement).hidden = guide === null;
   if (phase === 'paused' && reason) {
     recoveryMessage.textContent = RECOVERY_MESSAGES[reason] ?? '';
   }
@@ -198,6 +240,7 @@ function goToPlaying() {
   pendingResume = false;
   physicsAccumulatorSec = 0;
   setPhase('playing');
+  sfx.startWind();
 }
 
 function goToPaused(pauseReason: PauseReason) {
@@ -280,7 +323,13 @@ function directionTo(from: Vec3, to: Vec3): Vec3 {
 function computePreviewTarget() {
   if (!physics || !swing || phase !== 'playing' || swing.phase !== 'idle') return null;
   const origin = physics.getPlayerPosition();
-  return selectTarget(origin, currentAimDirection, world.candidates, physics, defaultSwingOptions());
+  return selectTarget(
+    origin,
+    currentAimDirection,
+    world.candidates,
+    physics,
+    defaultSwingOptions(),
+  );
 }
 
 // 조준점·표적 마커 모두 실제 발사 방향(currentAimDirection)을 카메라로 투영해 표시한다.
@@ -381,13 +430,17 @@ document.addEventListener('visibilitychange', () => {
 });
 
 btnCalibrate.addEventListener('click', () => {
+  sfx.resume();
   if (phase !== 'calibrating' || !latestOrientation || !inputReady()) return;
   if (calibration.calibrate(latestOrientation, pressed)) {
     goToReady();
   }
 });
 
-btnStart.addEventListener('click', () => goToPlaying());
+btnStart.addEventListener('click', () => {
+  sfx.resume();
+  goToPlaying();
+});
 btnStop.addEventListener('click', () => {
   if (phase === 'playing') goToPaused('operator');
 });
@@ -396,6 +449,7 @@ btnSwitchPhone.addEventListener('click', () => {
   goToPairing();
 });
 btnRestart.addEventListener('click', () => {
+  sfx.resume();
   if (phase !== 'gameOver' || !physics || !swing) return;
   physics.detach();
   resetRun();
@@ -405,6 +459,14 @@ btnRestart.addEventListener('click', () => {
   pendingResume = false;
   goToReady();
 });
+btnMute.addEventListener('click', () => {
+  sfx.resume();
+  sfx.setMuted(!sfx.isMuted);
+  btnMute.textContent = sfx.isMuted ? '소리 켜기' : '소리 끄기';
+});
+if (mouseMode) {
+  canvas.addEventListener('mousedown', () => sfx.resume());
+}
 
 // --- 물리·조준·거미줄 프레임 루프 (고정 60Hz 물리 + 보간 렌더링, ARCHITECTURE 5절) ---
 function computeAimDirection(): Vec3 {
@@ -422,6 +484,9 @@ function stepPhysicsFixed(nowSec: number) {
   if (!physics || !swing) return;
   const origin = physics.getPlayerPosition();
   swing.update(pressed, nowSec, origin, currentAimDirection, {
+    onFireStart: () => {
+      sfx.playFire();
+    },
     onAttach: (target) => {
       if (!physics) return;
       const dx = target.point[0] - origin[0];
@@ -435,10 +500,14 @@ function stepPhysicsFixed(nowSec: number) {
         (dz / len) * gameConfig.physics.attachPullSpeed,
       ]);
       attachedPoint = target.point;
+      sfx.playAttach();
+      showAttachFlashAt(attachFlash, target.point);
+      attachFlashStartMs = performance.now();
     },
     onRelease: () => {
       physics?.detach();
       attachedPoint = null;
+      sfx.playRelease();
     },
   });
   physics.step();
@@ -509,6 +578,26 @@ function frameLoop(nowMs: number) {
     playerMesh.position.set(...renderPos);
     updateCameraPosition(sceneHandle.camera, renderPos);
     updateRopeLine(ropeLine, renderPos, attachedPoint);
+
+    // 발사 진행 중(swing.phase === 'firing')에만 표시하는 선. 실제 상태와 항상 같은 프레임에 맞춘다.
+    const firingTarget = phase === 'playing' ? (swing?.pendingTargetPoint ?? null) : null;
+    const pulse = 0.6 + 0.4 * Math.sin(nowMs * gameConfig.effects.firePulsePerMs);
+    updateFireBeamLine(fireBeamLine, renderPos, firingTarget, pulse);
+
+    if (attachFlashStartMs !== null) {
+      const elapsed = nowMs - attachFlashStartMs;
+      if (elapsed >= gameConfig.effects.attachFlashDurationMs) {
+        attachFlash.visible = false;
+        attachFlashStartMs = null;
+      } else {
+        updateAttachFlash(attachFlash, elapsed / gameConfig.effects.attachFlashDurationMs);
+      }
+    }
+
+    if (phase === 'playing') {
+      const [vx, vy, vz] = physics.getPlayerVelocity();
+      sfx.updateWind(Math.sqrt(vx * vx + vy * vy + vz * vz));
+    }
   }
 
   sceneHandle.render();
