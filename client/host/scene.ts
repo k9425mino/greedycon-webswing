@@ -268,7 +268,7 @@ export function updateRopeLine(line: THREE.Line, from: Vec3, to: Vec3 | null): v
   line.geometry.computeBoundingSphere();
 }
 
-// 발사 진행 중(swing.phase === 'firing') 표시하는 임시 선. 거미줄과 다른 색으로 구분한다.
+// 발사 진행·빗나감에 표시하는 임시 선. 거미줄과 다른 색으로 구분한다.
 export function createFireBeamLine(scene: THREE.Scene): THREE.Line {
   const geometry = new THREE.BufferGeometry().setFromPoints([
     new THREE.Vector3(),
@@ -286,17 +286,11 @@ export function updateFireBeamLine(
   to: Vec3 | null,
   opacity: number,
 ): void {
-  if (!to) {
-    line.visible = false;
-    return;
-  }
-  line.visible = true;
+  // 카메라 원점에서 시작하면 선 전체가 한 점으로 투영된다. 전방 고정 카메라의
+  // 오른쪽 아래에서 보이게 옮기되, 실제 발사 판정과 끝점은 그대로 둔다.
+  const offset = gameConfig.effects.fireBeamOriginOffsetM;
+  updateRopeLine(line, [from[0] + offset[0], from[1] + offset[1], from[2] + offset[2]], to);
   (line.material as THREE.LineBasicMaterial).opacity = opacity;
-  const positions = line.geometry.attributes.position as THREE.BufferAttribute;
-  positions.setXYZ(0, from[0], from[1], from[2]);
-  positions.setXYZ(1, to[0], to[1], to[2]);
-  positions.needsUpdate = true;
-  line.geometry.computeBoundingSphere();
 }
 
 // 부착 성공 순간 잠깐 나타나는 원형 플래시. 카메라가 항상 -Z를 보고 롤이 없으므로

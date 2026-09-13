@@ -1,7 +1,34 @@
 import { expect, it } from 'vitest';
 import * as THREE from 'three';
-import { createChunkMeshes, createRopeLine, updateRopeLine } from '../../client/host/scene';
+import {
+  createChunkMeshes,
+  createFireBeamLine,
+  createRopeLine,
+  updateFireBeamLine,
+  updateRopeLine,
+} from '../../client/host/scene';
 import { buildChunk } from '../../client/host/world';
+
+it('정면으로 빗나간 발사도 화면에서 길이를 가진 선으로 보인다', () => {
+  const line = createFireBeamLine(new THREE.Scene());
+  updateFireBeamLine(line, [0, 0, 0], [0, 0, -70], 1);
+  const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 500);
+  const positions = line.geometry.getAttribute('position');
+  const start = new THREE.Vector3().fromBufferAttribute(positions, 0).project(camera);
+  const end = new THREE.Vector3().fromBufferAttribute(positions, 1).project(camera);
+
+  expect([start.x, start.y, start.z].every(Number.isFinite)).toBe(true);
+  expect(Math.abs(start.x)).toBeLessThan(1);
+  expect(Math.abs(start.y)).toBeLessThan(1);
+  expect(start.z).toBeGreaterThan(-1);
+  expect(start.z).toBeLessThan(1);
+  expect(Math.hypot(start.x - end.x, start.y - end.y)).toBeGreaterThan(0.1);
+  expect(end.x).toBeCloseTo(0);
+  expect(end.y).toBeCloseTo(0);
+  updateFireBeamLine(line, [0, 0, 0], null, 0);
+  expect(line.visible).toBe(false);
+  line.geometry.dispose();
+});
 
 it('이동한 거미줄이 카메라 안에 있으면 이전 위치의 경계 때문에 숨겨지지 않는다', () => {
   const line = createRopeLine(new THREE.Scene());

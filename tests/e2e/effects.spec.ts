@@ -27,12 +27,53 @@ test.beforeEach(async ({ page }) => {
         `
         export function readEffects() {
           return { phase, firing: swing?.phase === 'firing',
-            beam: fireBeamLine.visible, flash: attachFlash.visible,
+            beam: fireBeamLine.visible, beamOpacity: fireBeamLine.material.opacity,
+            flash: attachFlash.visible,
             attached: attachedPoint !== null, audioAvailable: sfx.available };
         }
       `,
     });
   });
+});
+
+test('빗나간 발사는 한 번 표시된 뒤 누르고 있어도 사라진다', async ({ page }) => {
+  await page.goto('/?input=mouse');
+  await expect(page.locator('#status-physics')).toHaveText('준비됨');
+  await page.locator('#btn-start').click();
+  const box = await page.locator('#scene').boundingBox();
+  if (!box) throw new Error('canvas not found');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(page.locator('#crosshair')).toHaveAttribute('data-has-target', 'false');
+
+  // 짧은 효과를 놓치지 않도록 발사 전에 프레임별 관찰을 예약한다.
+  await page.evaluate(async () => {
+    const path = '/host/main.ts';
+    const { readEffects } = await import(path);
+    const deadline = performance.now() + 1500;
+    function observe() {
+      const effect = readEffects();
+      if (effect.beam) {
+        document.documentElement.dataset.missBeamSeen = 'true';
+        if (effect.beamOpacity < 0 || effect.beamOpacity > 1) {
+          document.documentElement.dataset.invalidBeamOpacity = 'true';
+        }
+      }
+      if (performance.now() < deadline) requestAnimationFrame(observe);
+    }
+    requestAnimationFrame(observe);
+  });
+  await page.mouse.down();
+  await expect(page.locator('html')).toHaveAttribute('data-miss-beam-seen', 'true');
+  await page.waitForTimeout(400);
+  expect(
+    await page.evaluate(async () => {
+      const path = '/host/main.ts';
+      return (await import(path)).readEffects();
+    }),
+  ).toMatchObject({ phase: 'playing', beam: false, attached: false });
+  await expect(page.locator('html')).not.toHaveAttribute('data-invalid-beam-opacity', 'true');
+  await expect(page.locator('html')).toHaveAttribute('data-oscillators', '2');
+  await page.mouse.up();
 });
 
 test('발사 중 정지하면 임시 효과가 사라지고 재개 후 다시 발사할 수 있다', async ({ page }) => {

@@ -82,6 +82,8 @@ export function selectTarget(
 
 export type SwingCallbacks = {
   onFireStart?: (target: TargetHit) => void;
+  // 표적을 찾지 못한 발사. 쏜 것 자체는 보여줘야 해서 조준 방향을 그대로 넘긴다.
+  onFireMiss?: (aimDirection: Vec3) => void;
   onAttach: (target: TargetHit) => void;
   onRelease: () => void;
 };
@@ -119,6 +121,7 @@ export class WebSwing {
         this.fireStartedAt = nowSec;
         callbacks.onFireStart?.(target);
       } else {
+        callbacks.onFireMiss?.(aimDirection);
         this.phase = 'releasedRequired';
       }
       return;

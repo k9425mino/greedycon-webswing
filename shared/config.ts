@@ -47,6 +47,8 @@ export const gameConfig = {
   effects: {
     attachFlashDurationMs: 220,
     firePulsePerMs: 0.05,
+    missBeamDurationMs: 260,
+    fireBeamOriginOffsetM: [0.25, -0.2, -0.5] as [number, number, number],
   },
 
   // 무한 도로 구간 (ARCHITECTURE 5절 제안 초기값, 측정 전 시작점)

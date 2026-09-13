@@ -23,3 +23,19 @@ export function quaternionFromAxisAngle(
   const s = Math.sin(halfRad);
   return [axis[0] * s, axis[1] * s, axis[2] * s, Math.cos(halfRad)];
 }
+
+// 쿼터니언 회전을 벡터에 적용한다. v' = v + 2w(qv × v) + 2 qv × (qv × v), qv = (x,y,z).
+export function rotateVectorByQuaternion(
+  [x, y, z, w]: Quaternion,
+  [vx, vy, vz]: [number, number, number],
+): [number, number, number] {
+  const t1x = y * vz - z * vy;
+  const t1y = z * vx - x * vz;
+  const t1z = x * vy - y * vx;
+
+  const t2x = y * t1z - z * t1y;
+  const t2y = z * t1x - x * t1z;
+  const t2z = x * t1y - y * t1x;
+
+  return [vx + 2 * w * t1x + 2 * t2x, vy + 2 * w * t1y + 2 * t2y, vz + 2 * w * t1z + 2 * t2z];
+}

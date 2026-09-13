@@ -17,11 +17,10 @@ import { HostSocket } from './socket';
 import { buildControllerUrl, renderQr } from './qr';
 import { Calibration } from './calibration';
 import {
+  aimAnglesFromOrientation,
   anglesToDirection,
   clampAimAngles,
   directionToScreenRatio,
-  relativeRotation,
-  relativeRotationToAngles,
 } from './aim';
 import { nextPendingResume } from './resumeState';
 import { RateCounter } from './diagnostics';
@@ -141,6 +140,9 @@ const sfx = new SfxPlayer();
 // 부착 순간에만 한 번 재생하는 짧은 원형 플래시(중복 방지: attachFlashStartMs로 진행 중 여부 판단).
 let attachFlashStartMs: number | null = null;
 
+// 표적 없이 발사했을 때 잠깐 뻗었다 사라지는 거미줄. 끝점은 발사 순간 좌표로 고정한다.
+let missBeam: { point: Vec3; startedAtMs: number } | null = null;
+
 // 구간 생성·회수는 렌더 mesh와 물리 콜라이더를 같은 단위로 함께 붙였다 뗀다.
 const world = new ChunkedWorld({
   onAdd: (chunk) => {
@@ -179,6 +181,7 @@ function setPhase(next: GamePhase, nextReason?: PauseReason) {
     fireBeamLine.visible = false;
     attachFlash.visible = false;
     attachFlashStartMs = null;
+    missBeam = null;
   }
   phase = next;
   reason = nextReason;
@@ -475,8 +478,7 @@ function computeAimDirection(): Vec3 {
     return mouseInput.current.direction;
   }
   if (!latestOrientation || !calibration.q0) return currentAimDirection;
-  const relative = relativeRotation(latestOrientation, calibration.q0);
-  const angles = clampAimAngles(relativeRotationToAngles(relative));
+  const angles = clampAimAngles(aimAnglesFromOrientation(latestOrientation, calibration.q0));
   return anglesToDirection(angles);
 }
 
@@ -485,7 +487,20 @@ function stepPhysicsFixed(nowSec: number) {
   const origin = physics.getPlayerPosition();
   swing.update(pressed, nowSec, origin, currentAimDirection, {
     onFireStart: () => {
+      missBeam = null;
       sfx.playFire();
+    },
+    onFireMiss: (aimDirection) => {
+      const reach = gameConfig.web.maxFireDistance;
+      missBeam = {
+        point: [
+          origin[0] + aimDirection[0] * reach,
+          origin[1] + aimDirection[1] * reach,
+          origin[2] + aimDirection[2] * reach,
+        ],
+        startedAtMs: nowSec * 1000,
+      };
+      sfx.playMiss();
     },
     onAttach: (target) => {
       if (!physics) return;
@@ -579,10 +594,24 @@ function frameLoop(nowMs: number) {
     updateCameraPosition(sceneHandle.camera, renderPos);
     updateRopeLine(ropeLine, renderPos, attachedPoint);
 
-    // 발사 진행 중(swing.phase === 'firing')에만 표시하는 선. 실제 상태와 항상 같은 프레임에 맞춘다.
+    // 발사 진행과 빗나감 연출은 같은 선을 공유한다.
     const firingTarget = phase === 'playing' ? (swing?.pendingTargetPoint ?? null) : null;
-    const pulse = 0.6 + 0.4 * Math.sin(nowMs * gameConfig.effects.firePulsePerMs);
-    updateFireBeamLine(fireBeamLine, renderPos, firingTarget, pulse);
+    if (firingTarget) {
+      const pulse = 0.6 + 0.4 * Math.sin(nowMs * gameConfig.effects.firePulsePerMs);
+      updateFireBeamLine(fireBeamLine, renderPos, firingTarget, pulse);
+    } else if (missBeam) {
+      // 빗나간 발사는 같은 선을 흐려지게 해서 "쐈지만 걸리지 않았다"를 보여준다.
+      const fadeProgress = (nowMs - missBeam.startedAtMs) / gameConfig.effects.missBeamDurationMs;
+      if (fadeProgress >= 1) missBeam = null;
+      updateFireBeamLine(
+        fireBeamLine,
+        renderPos,
+        missBeam?.point ?? null,
+        Math.max(0, 1 - fadeProgress),
+      );
+    } else {
+      updateFireBeamLine(fireBeamLine, renderPos, null, 0);
+    }
 
     if (attachFlashStartMs !== null) {
       const elapsed = nowMs - attachFlashStartMs;

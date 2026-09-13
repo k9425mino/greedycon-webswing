@@ -110,6 +110,9 @@ export class SfxPlayer {
     this.tone(520, 0.09, 'sine', 0.18);
     this.tone(780, 0.09, 'sine', 0.1);
   }
+  playMiss(): void {
+    this.tone(200, 0.1, 'triangle', 0.09);
+  }
   playRelease(): void {
     this.tone(260, 0.07, 'triangle', 0.1);
   }

@@ -1,38 +1,38 @@
 import type { Quaternion } from '@shared/types';
 import { gameConfig } from '@shared/config';
-import { conjugateQuaternion, multiplyQuaternions } from '@shared/quaternionMath';
-
-// 기준 자세(q0) 대비 현재 자세의 상대 회전.
-export function relativeRotation(current: Quaternion, reference: Quaternion): Quaternion {
-  return multiplyQuaternions(conjugateQuaternion(reference), current);
-}
+import { rotateVectorByQuaternion } from '@shared/quaternionMath';
 
 export type AimAngles = { yawDeg: number; pitchDeg: number };
 
-// 정면(-Z, 카메라 forward) 기준 상대 회전을 yaw/pitch로 변환한다.
-export function relativeRotationToAngles([x, y, z, w]: Quaternion): AimAngles {
-  // v' = v + 2*w*(qv x v) + 2*qv x (qv x v), qv = (x,y,z), v = forward(0,0,-1)
-  const vx = 0;
-  const vy = 0;
-  const vz = -1;
+// 기기 좌표계에서 조준 방향으로 쓰는 축. 손목에 폰을 고정하고 폰 상단이 손가락을 향하는 장착이
+// 기준이다(ARCHITECTURE 5절). 상단이 팔꿈치 쪽을 향하게 장착하면 [0, -1, 0]으로 바꾼다.
+const DEVICE_AIM_AXIS: [number, number, number] = [0, 1, 0];
 
-  const t1x = y * vz - z * vy;
-  const t1y = z * vx - x * vz;
-  const t1z = x * vy - y * vx;
+// 위에서 봤을 때 base에서 now까지의 반시계 각도(도). 두 벡터의 수평 성분만 사용한다.
+function counterClockwiseAngleDeg(base: [number, number], now: [number, number]): number {
+  const cross = base[0] * now[1] - base[1] * now[0];
+  const dot = base[0] * now[0] + base[1] * now[1];
+  return (Math.atan2(cross, dot) * 180) / Math.PI;
+}
 
-  const t2x = y * t1z - z * t1y;
-  const t2y = z * t1x - x * t1z;
-  const t2z = x * t1y - y * t1x;
+function elevationDeg(z: number): number {
+  return (Math.asin(Math.max(-1, Math.min(1, z))) * 180) / Math.PI;
+}
 
-  const rx = vx + 2 * w * t1x + 2 * t2x;
-  const ry = vy + 2 * w * t1y + 2 * t2y;
-  const rz = vz + 2 * w * t1z + 2 * t2z;
+// DeviceOrientation 쿼터니언은 기기 좌표를 지면 좌표(X 동, Y 북, Z 위)로 옮긴다. 조준축을 지면
+// 좌표로 옮긴 뒤 보정 자세(q0)의 조준축과 비교해 좌우(수평 방위 차)·상하(고도 차)를 구한다.
+// 게임 좌표계(Y 위, 전방 -Z)에서 상대 회전을 바로 적용하면 수직축이 달라 팔을 좌우로 돌려도
+// 조준이 움직이지 않으므로, 비교는 반드시 지면 좌표계에서 한다.
+// 조준축을 중심으로 손목을 비트는 회전(롤)은 조준에 영향을 주지 않는다.
+export function aimAnglesFromOrientation(current: Quaternion, reference: Quaternion): AimAngles {
+  const now = rotateVectorByQuaternion(current, DEVICE_AIM_AXIS);
+  const base = rotateVectorByQuaternion(reference, DEVICE_AIM_AXIS);
 
-  const yawDeg = (Math.atan2(rx, -rz) * 180) / Math.PI;
-  const horizontalDist = Math.sqrt(rx * rx + rz * rz);
-  const pitchDeg = (Math.atan2(ry, horizontalDist) * 180) / Math.PI;
+  // 조준축이 수직에 가까우면 방위가 정해지지 않는다. 그 순간에는 좌우를 정면으로 둔다.
+  const horizontal = Math.hypot(now[0], now[1]) > 1e-6 && Math.hypot(base[0], base[1]) > 1e-6;
+  const yawDeg = horizontal ? -counterClockwiseAngleDeg([base[0], base[1]], [now[0], now[1]]) : 0;
 
-  return { yawDeg, pitchDeg };
+  return { yawDeg, pitchDeg: elevationDeg(now[2]) - elevationDeg(base[2]) };
 }
 
 export function clampAimAngles({ yawDeg, pitchDeg }: AimAngles): AimAngles {

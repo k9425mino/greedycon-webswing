@@ -166,6 +166,24 @@ describe('WebSwing', () => {
     expect(fireStartCount).toBe(0);
   });
 
+  it('표적이 없으면 조준 방향과 함께 onFireMiss를 한 번 호출한다', () => {
+    const swing = makeSwing(query());
+    const misses: Array<[number, number, number]> = [];
+    const callbacks = {
+      onFireMiss: (direction: [number, number, number]) => misses.push(direction),
+      onAttach: () => {},
+      onRelease: () => {},
+    };
+
+    swing.update(true, 0, [0, 0, 0], [1, 0, 0], callbacks);
+    expect(swing.phase).toBe('releasedRequired');
+    expect(misses).toEqual([[1, 0, 0]]);
+
+    // 손을 떼기 전에는 다시 발사하지 않는다.
+    swing.update(true, 0.2, [0, 0, 0], [1, 0, 0], callbacks);
+    expect(misses).toHaveLength(1);
+  });
+
   it('새로 reset할 때 이미 눌려있으면 자동 발사로 취급하지 않는다', () => {
     const swing = makeSwing();
     let attachCount = 0;
