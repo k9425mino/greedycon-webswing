@@ -5,3 +5,4 @@ dist-server/
 *.local
 playwright-report/
 test-results/
+*.log

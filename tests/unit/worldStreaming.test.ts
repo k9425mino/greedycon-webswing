@@ -42,7 +42,9 @@ describe('무한 도로 스트리밍', () => {
           const dy = candidate.point[1] - y;
           const dz = candidate.point[2] - z;
           const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-          return distance >= gameConfig.web.minFireDistance && distance <= gameConfig.web.maxFireDistance;
+          return (
+            distance >= gameConfig.web.minFireDistance && distance <= gameConfig.web.maxFireDistance
+          );
         });
         expect(ahead.length, `z=${z}, side=${side}에 도달 가능한 후보 없음`).toBeGreaterThan(0);
       }

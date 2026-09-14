@@ -42,7 +42,9 @@ describe('buildChunk', () => {
         const dy = candidate.point[1] - start[1];
         const dz = candidate.point[2] - start[2];
         const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        return distance >= gameConfig.web.minFireDistance && distance <= gameConfig.web.maxFireDistance;
+        return (
+          distance >= gameConfig.web.minFireDistance && distance <= gameConfig.web.maxFireDistance
+        );
       });
       expect(reachable.length).toBeGreaterThan(0);
     }

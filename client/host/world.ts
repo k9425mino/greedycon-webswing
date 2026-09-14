@@ -71,8 +71,7 @@ export function buildChunk(index: number): Chunk {
         halfExtents: [buildingHalfWidthXM, height / 2, buildingDepthM / 2],
       });
       candidates.push({ point: [side * innerFaceX, height * 0.6, centerZ] });
-      const gap =
-        buildingGapRangeM[0] + random() * (buildingGapRangeM[1] - buildingGapRangeM[0]);
+      const gap = buildingGapRangeM[0] + random() * (buildingGapRangeM[1] - buildingGapRangeM[0]);
       cursorZ = centerZ - buildingDepthM / 2 - gap;
     }
   }
