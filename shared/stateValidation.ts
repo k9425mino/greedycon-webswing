@@ -13,6 +13,7 @@ const PAUSE_REASONS: readonly PauseReason[] = [
   'hidden',
   'sensorUnavailable',
   'fall',
+  'outOfBounds',
   'stalled',
   'operator',
 ];

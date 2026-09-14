@@ -39,38 +39,47 @@ test.beforeEach(async ({ page }) => {
 test('빗나간 발사는 한 번 표시된 뒤 누르고 있어도 사라진다', async ({ page }) => {
   await page.goto('/?input=mouse');
   await expect(page.locator('#status-physics')).toHaveText('준비됨');
-  await page.locator('#btn-start').click();
   const box = await page.locator('#scene').boundingBox();
   if (!box) throw new Error('canvas not found');
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await expect(page.locator('#crosshair')).toHaveAttribute('data-has-target', 'false');
 
-  // 짧은 효과를 놓치지 않도록 발사 전에 프레임별 관찰을 예약한다.
+  // 짧은 효과를 놓치지 않도록 발사 전에 프레임별 관찰을 예약한다. 부착하지 않는 발사라
+  // 플레이가 시작되면 약 1.9초 뒤 낙하로 끝난다. 관찰 준비(동적 import)를 시작 전에 끝내
+  // 그 시간이 플레이 구간을 먹지 않게 한다.
   await page.evaluate(async () => {
     const path = '/host/main.ts';
     const { readEffects } = await import(path);
-    const deadline = performance.now() + 1500;
+    const deadline = performance.now() + 5000;
+    const data = document.documentElement.dataset;
     function observe() {
       const effect = readEffects();
+      if (effect.attached) data.missAttached = 'true';
       if (effect.beam) {
-        document.documentElement.dataset.missBeamSeen = 'true';
-        if (effect.beamOpacity < 0 || effect.beamOpacity > 1) {
-          document.documentElement.dataset.invalidBeamOpacity = 'true';
-        }
+        if (data.missBeamGone === 'true') data.missBeamRefired = 'true';
+        data.missBeamSeen = 'true';
+        if (effect.beamOpacity < 0 || effect.beamOpacity > 1) data.invalidBeamOpacity = 'true';
+      } else if (data.missBeamSeen === 'true' && data.missBeamGone !== 'true') {
+        // 사라진 순간의 단계를 남긴다. 연출이 끝나서 사라진 것과 종료로 지워진 것을 구분한다.
+        data.missBeamGone = 'true';
+        data.missBeamGonePhase = effect.phase;
       }
       if (performance.now() < deadline) requestAnimationFrame(observe);
     }
     requestAnimationFrame(observe);
   });
+
+  await page.locator('#btn-start').click();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(page.locator('#crosshair')).toHaveAttribute('data-has-target', 'false');
   await page.mouse.down();
   await expect(page.locator('html')).toHaveAttribute('data-miss-beam-seen', 'true');
-  await page.waitForTimeout(400);
-  expect(
-    await page.evaluate(async () => {
-      const path = '/host/main.ts';
-      return (await import(path)).readEffects();
-    }),
-  ).toMatchObject({ phase: 'playing', beam: false, attached: false });
+
+  // 브라우저 프레임 안에서 기록한 값으로 판정한다. 벽시계 대기 시점에 읽으면 실행 속도에 따라
+  // 낙하 종료가 먼저 와서 결과가 뒤집힌다.
+  await expect(page.locator('html')).toHaveAttribute('data-miss-beam-gone', 'true');
+  await expect(page.locator('html')).toHaveAttribute('data-miss-beam-gone-phase', 'playing');
+  await page.waitForTimeout(300);
+  await expect(page.locator('html')).not.toHaveAttribute('data-miss-beam-refired', 'true');
+  await expect(page.locator('html')).not.toHaveAttribute('data-miss-attached', 'true');
   await expect(page.locator('html')).not.toHaveAttribute('data-invalid-beam-opacity', 'true');
   await expect(page.locator('html')).toHaveAttribute('data-oscillators', '2');
   await page.mouse.up();

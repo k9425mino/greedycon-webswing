@@ -8,6 +8,9 @@ describe('상태 메시지 검증', () => {
       true,
     );
     expect(isValidHostState({ phase: 'gameOver', calibrated: true, reason: 'fall' })).toBe(true);
+    expect(isValidHostState({ phase: 'gameOver', calibrated: true, reason: 'outOfBounds' })).toBe(
+      true,
+    );
   });
 
   it.each([

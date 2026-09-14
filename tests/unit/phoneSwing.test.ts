@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { gameConfig } from '@shared/config';
-import { PhysicsWorld, type Vec3 } from '../../client/host/physics';
+import { forwardSwingBoost, PhysicsWorld, type Vec3 } from '../../client/host/physics';
 import { ChunkedWorld } from '../../client/host/world';
 import { defaultSwingOptions, WebSwing } from '../../client/host/web';
 import { aimAnglesFromOrientation, anglesToDirection, clampAimAngles } from '../../client/host/aim';
@@ -46,14 +46,9 @@ describe('폰 조준으로 시작하는 실제 스윙', () => {
       swing.update(true, step * dt, origin, direction, {
         onAttach: (target) => {
           physics.attach(target.point, target.distance);
-          const [dx, dy, dz] = [
-            target.point[0] - origin[0],
-            target.point[1] - origin[1],
-            target.point[2] - origin[2],
-          ];
-          const len = Math.hypot(dx, dy, dz) || 1;
-          const pull = gameConfig.physics.attachPullSpeed;
-          physics.applyVelocityDelta([(dx / len) * pull, (dy / len) * pull, (dz / len) * pull]);
+          physics.applyVelocityDelta(
+            forwardSwingBoost(origin, target.point, gameConfig.physics.attachSwingBoostSpeed),
+          );
           attachedAt = step;
         },
         onRelease: () => physics.detach(),

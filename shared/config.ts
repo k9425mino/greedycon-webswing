@@ -18,7 +18,7 @@ export const gameConfig = {
     pitchDown: 35,
   },
   calibrationSearchHalfAngleDeg: 12,
-  cameraVerticalFovDeg: 75,
+  cameraVerticalFovDeg: 90,
 
   // 세션 정리 (ARCHITECTURE 3절)
   emptySessionTtlMs: 10 * 60 * 1000,
@@ -31,7 +31,7 @@ export const gameConfig = {
     playerRadius: 0.4,
     startHeight: 18,
     forwardSpeed: 14,
-    attachPullSpeed: 2,
+    attachSwingBoostSpeed: 2,
     buildingRestitution: 0.2,
     buildingFriction: 0.1,
   },

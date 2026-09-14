@@ -38,7 +38,7 @@ import {
   updateRopeLine,
 } from './scene';
 import { isMouseInputEnabled, MouseAimInput } from './mouseInput';
-import { PhysicsWorld, type Vec3 } from './physics';
+import { forwardSwingBoost, PhysicsWorld, type Vec3 } from './physics';
 import { ChunkedWorld, chunkIndexForZ } from './world';
 import { Progress } from './progress';
 import {
@@ -95,6 +95,7 @@ const RECOVERY_MESSAGES: Record<PauseReason, string> = {
   hidden: '폰 화면이 전환되었습니다. 폰으로 돌아와 재보정하세요.',
   sensorUnavailable: '센서 신호가 없습니다. 폰의 센서 권한과 연결을 확인하세요.',
   fall: '추락으로 종료되었습니다.',
+  outOfBounds: '도로 밖으로 벗어나 종료했습니다.',
   stalled: '전진 정체로 종료되었습니다.',
   operator: '운영자가 중지했습니다.',
 };
@@ -138,7 +139,6 @@ let physicsReady = false;
 
 const calibration = new Calibration();
 const seqTracker = createSeqTracker();
-const sensorRate = new RateCounter();
 const recvRate = new RateCounter();
 
 // --- 물리·월드·거미줄 (무한 도로, ARCHITECTURE 5절) ---
@@ -156,6 +156,9 @@ const attachFlash = createAttachFlash(sceneHandle.scene);
 const chunkMeshes = createChunkMeshes(sceneHandle.scene);
 const progress = new Progress();
 const sfx = new SfxPlayer();
+
+// 표적 미리보기와 실제 발사가 같은 설정을 쓰도록 한 번만 만들어 공유한다.
+const swingOptions = defaultSwingOptions();
 
 // 부착 순간에만 한 번 재생하는 짧은 원형 플래시(중복 방지: attachFlashStartMs로 진행 중 여부 판단).
 let attachFlashStartMs: number | null = null;
@@ -188,7 +191,7 @@ PhysicsWorld.create()
     physics.createPlayer(world.startPosition);
     world.reset();
     progress.reset(world.startPosition[2]);
-    swing = new WebSwing(physics, world.candidates, defaultSwingOptions());
+    swing = new WebSwing(physics, world.candidates, swingOptions);
     physicsReady = true;
     statusPhysics.textContent = '준비됨';
     refreshStatusText();
@@ -280,6 +283,13 @@ function goToGameOver(pauseReason: PauseReason) {
   setPhase('gameOver', pauseReason);
 }
 
+// 종료 경로가 줄 해제를 빠뜨리지 않도록 한곳에 모은다.
+function endRun(endReason: PauseReason) {
+  physics?.detach();
+  attachedPoint = null;
+  goToGameOver(endReason);
+}
+
 function maybeRecover() {
   if (phase !== 'paused') return;
   if (mouseMode) return;
@@ -337,25 +347,21 @@ function refreshStatusText() {
   diagRecvHz.textContent = String(recvRate.hz());
 }
 
+function magnitude(v: Vec3): number {
+  return Math.hypot(v[0], v[1], v[2]);
+}
+
 function directionTo(from: Vec3, to: Vec3): Vec3 {
-  const dx = to[0] - from[0];
-  const dy = to[1] - from[1];
-  const dz = to[2] - from[2];
-  const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
-  return [dx / len, dy / len, dz / len];
+  const delta: Vec3 = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+  const len = magnitude(delta) || 1;
+  return [delta[0] / len, delta[1] / len, delta[2] / len];
 }
 
 // selectTarget과 동일한 후보·설정으로 부착 예정점을 미리 계산한다(발사 전 표적 표시).
 function computePreviewTarget() {
   if (!physics || !swing || phase !== 'playing' || swing.phase !== 'idle') return null;
   const origin = physics.getPlayerPosition();
-  return selectTarget(
-    origin,
-    currentAimDirection,
-    world.candidates,
-    physics,
-    defaultSwingOptions(),
-  );
+  return selectTarget(origin, currentAimDirection, world.candidates, physics, swingOptions);
 }
 
 // 조준점·표적 마커 모두 실제 발사 방향(currentAimDirection)을 카메라로 투영해 표시한다.
@@ -404,11 +410,9 @@ const hostSocket = new HostSocket({
     recvRate.tick();
     maybeRecover();
     refreshStatusText();
-    updateCrosshair();
   },
   onControllerStatus: (status: ControllerStatus) => {
     controllerStatus = status;
-    sensorRate.tick();
     if (phase === 'playing' && !status.sensorAvailable) {
       goToPaused('sensorUnavailable');
     } else if (phase === 'ready' && (!status.sensorAvailable || !status.pageVisible)) {
@@ -529,20 +533,14 @@ function stepPhysicsFixed(nowSec: number) {
     },
     onAttach: (target) => {
       if (!physics) return;
-      const dx = target.point[0] - origin[0];
-      const dy = target.point[1] - origin[1];
-      const dz = target.point[2] - origin[2];
-      const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
       physics.attach(target.point, target.distance);
-      physics.applyVelocityDelta([
-        (dx / len) * gameConfig.physics.attachPullSpeed,
-        (dy / len) * gameConfig.physics.attachPullSpeed,
-        (dz / len) * gameConfig.physics.attachPullSpeed,
-      ]);
+      physics.applyVelocityDelta(
+        forwardSwingBoost(origin, target.point, gameConfig.physics.attachSwingBoostSpeed),
+      );
       attachedPoint = target.point;
       sfx.playAttach();
       showAttachFlashAt(attachFlash, target.point);
-      attachFlashStartMs = performance.now();
+      attachFlashStartMs = nowSec * 1000;
     },
     onRelease: () => {
       physics?.detach();
@@ -551,28 +549,20 @@ function stepPhysicsFixed(nowSec: number) {
     },
   });
   physics.step();
-  if (physics.didTouchGroundThisStep()) {
-    physics.detach();
-    attachedPoint = null;
-    goToGameOver('fall');
+  const outsideRoad = physics.isOutsideRoad();
+  if (physics.didTouchGroundThisStep() || outsideRoad) {
+    endRun(outsideRoad ? 'outOfBounds' : 'fall');
     return;
   }
 
   // 점수·정체는 실제 수행한 물리 step으로만 증가한다(ARCHITECTURE 5절).
   progress.step(gameConfig.physics.fixedTimestepSec, physics.getPlayerPosition()[2]);
-  if (progress.stallState === 'ended') {
-    physics.detach();
-    attachedPoint = null;
-    goToGameOver('stalled');
-  }
+  if (progress.stallState === 'ended') endRun('stalled');
 }
 
-function updateHud() {
+function updateHud(speedMs: number | null) {
   hudScore.textContent = String(progress.score);
-  if (physics) {
-    const [vx, vy, vz] = physics.getPlayerVelocity();
-    hudSpeed.textContent = `${Math.round(Math.sqrt(vx * vx + vy * vy + vz * vz))} m/s`;
-  }
+  if (speedMs !== null) hudSpeed.textContent = `${Math.round(speedMs)} m/s`;
   const warning = phase === 'playing' && progress.stallState === 'warning';
   hudStall.hidden = !warning;
   if (warning) hudStallLeft.textContent = progress.stallSecondsLeft.toFixed(1);
@@ -657,7 +647,8 @@ function frameLoop(nowMs: number) {
     world.update(physics.getPlayerPosition()[2], attachedChunkIndex);
   }
 
-  updateHud();
+  const playerSpeed = physics ? magnitude(physics.getPlayerVelocity()) : null;
+  updateHud(playerSpeed);
   updateDiagnostics();
 
   if (physics) {
@@ -697,10 +688,7 @@ function frameLoop(nowMs: number) {
       }
     }
 
-    if (phase === 'playing') {
-      const [vx, vy, vz] = physics.getPlayerVelocity();
-      sfx.updateWind(Math.sqrt(vx * vx + vy * vy + vz * vz));
-    }
+    if (phase === 'playing' && playerSpeed !== null) sfx.updateWind(playerSpeed);
   }
 
   sceneHandle.render();

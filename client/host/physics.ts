@@ -9,6 +9,31 @@ export type BoxSpec = {
   halfExtents: Vec3;
 };
 
+export function isOutsideRoad(position: Vec3, roadWidth: number, playerRadius: number): boolean {
+  return Math.abs(position[0]) + playerRadius > roadWidth / 2 && position[1] <= 0;
+}
+
+export function forwardSwingBoost(origin: Vec3, anchor: Vec3, speed: number): Vec3 {
+  const dx = anchor[0] - origin[0];
+  const dy = anchor[1] - origin[1];
+  const dz = anchor[2] - origin[2];
+  const length = Math.hypot(dx, dy, dz);
+  if (length === 0) return [0, 0, 0];
+
+  const axis: Vec3 = [dx / length, dy / length, dz / length];
+  const forward: Vec3 = [0, 0, -1];
+  const projected = forward[0] * axis[0] + forward[1] * axis[1] + forward[2] * axis[2];
+  const tangent: Vec3 = [
+    forward[0] - projected * axis[0],
+    forward[1] - projected * axis[1],
+    forward[2] - projected * axis[2],
+  ];
+  // 접선 길이는 전방과 줄 축이 이루는 각의 sin이다. 정규화하면 줄이 전방에 가까울 때
+  // (멀리 있는 정면 표적) 거의 0인 접선이 그대로 최대 속도가 되어 옆·아래로 튄다.
+  // 길이를 그대로 곱해 줄이 전방과 수직일 때 speed가 최대가 되게 한다.
+  return [tangent[0] * speed, tangent[1] * speed, tangent[2] * speed];
+}
+
 let rapierInitialized = false;
 
 async function ensureRapierInit(): Promise<void> {
@@ -155,6 +180,14 @@ export class PhysicsWorld implements TargetQuery {
 
   didTouchGroundThisStep(): boolean {
     return this.groundedThisStep;
+  }
+
+  isOutsideRoad(): boolean {
+    return isOutsideRoad(
+      this.getPlayerPosition(),
+      gameConfig.world.roadWidthM,
+      gameConfig.physics.playerRadius,
+    );
   }
 
   // 렌더링용 보간 위치 (alpha: 0=직전, 1=현재).

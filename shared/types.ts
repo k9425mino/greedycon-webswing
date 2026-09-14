@@ -3,7 +3,7 @@ export type Quaternion = [number, number, number, number]; // x, y, z, w
 export type GamePhase = 'pairing' | 'calibrating' | 'ready' | 'playing' | 'paused' | 'gameOver';
 
 export type PauseReason =
-  'inputLost' | 'hidden' | 'sensorUnavailable' | 'fall' | 'stalled' | 'operator';
+  'inputLost' | 'hidden' | 'sensorUnavailable' | 'fall' | 'outOfBounds' | 'stalled' | 'operator';
 
 export type InputFrame = {
   seq: number;
