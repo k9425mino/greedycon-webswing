@@ -17,7 +17,6 @@ export const gameConfig = {
     pitchUp: 75,
     pitchDown: 35,
   },
-  calibrationSearchHalfAngleDeg: 12,
   cameraVerticalFovDeg: 90,
 
   // 세션 정리 (ARCHITECTURE 3절)
@@ -32,6 +31,13 @@ export const gameConfig = {
     startHeight: 18,
     forwardSpeed: 14,
     attachSwingBoostSpeed: 2,
+    // 줄 구속 (rope joint 대체). 부착 순간 거리를 고정 길이로 잡고 양방향으로 구속한다.
+    // 길이 오차를 되돌릴 때 쓰는 반경 방향 속도의 상한이다.
+    ropeCorrectionSpeed: 8,
+    // 부착 직후 짧은 당김. 줄의 목표 길이를 부착 거리보다 이만큼 짧게 잡고 아래 속도로 감는다.
+    // 감기가 끝나면 그 길이로 고정된다(부착당 한 번).
+    attachPullDistanceM: 0.6,
+    attachPullSpeed: 3,
     buildingRestitution: 0.2,
     buildingFriction: 0.1,
   },
@@ -41,6 +47,8 @@ export const gameConfig = {
     fireEffectSec: 0.1,
     minFireDistance: 3,
     maxFireDistance: 70,
+    // 조준 보정: 조준 방향으로 이 반지름의 구체를 쓸어 벽면 접촉점을 찾는다(후보점 배열 대체).
+    aimAssistRadiusM: 2.5,
   },
 
   // 시각 효과의 기존 초기값. 실기기 체감 검증 전이다.
@@ -48,7 +56,8 @@ export const gameConfig = {
     attachFlashDurationMs: 220,
     firePulsePerMs: 0.05,
     missBeamDurationMs: 260,
-    fireBeamOriginOffsetM: [0.25, -0.2, -0.5] as [number, number, number],
+    // 거미줄 선(발사·빗나감·부착)의 시작점 오프셋. 카메라 원점에서 시작하면 한 점으로 투영된다.
+    beamOriginOffsetM: [0.25, -0.2, -0.5] as [number, number, number],
   },
 
   // 무한 도로 구간 (ARCHITECTURE 5절 제안 초기값, 측정 전 시작점)
@@ -57,7 +66,7 @@ export const gameConfig = {
     chunkLengthM: 60,
     chunksAhead: 4,
     chunksBehind: 2,
-    buildingHeightRangeM: [30, 50],
+    buildingHeightRangeM: [45, 70],
     buildingHalfWidthXM: 6,
     buildingDepthM: 18,
     buildingGapRangeM: [2, 6],

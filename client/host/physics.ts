@@ -34,6 +34,8 @@ export function forwardSwingBoost(origin: Vec3, anchor: Vec3, speed: number): Ve
   return [tangent[0] * speed, tangent[1] * speed, tangent[2] * speed];
 }
 
+const IDENTITY_ROTATION = { x: 0, y: 0, z: 0, w: 1 };
+
 let rapierInitialized = false;
 
 async function ensureRapierInit(): Promise<void> {
@@ -50,11 +52,13 @@ export class PhysicsWorld implements TargetQuery {
   private groundColliderHandles = new Set<number>();
   private buildingColliderHandles = new Set<number>();
   private chunkBodies = new Map<number, RAPIER.RigidBody[]>();
+  // 앵커는 좌표 데이터일 뿐이다. rope joint는 최대 거리만 제한해, 표적이 앞쪽에 있고 플레이어가
+  // 그쪽으로 날아가는 이 게임에서는 부착 후 거리가 줄어들어 끝까지 느슨했다(힘이 전혀 안 걸렸다).
+  // 길이는 부착 순간 거리에서 짧게 한 번 감은 뒤 고정하고, 양방향으로 구속한다(고정 길이 진자).
   private anchor: {
-    body: RAPIER.RigidBody;
-    joint: RAPIER.ImpulseJoint;
     point: Vec3;
     length: number;
+    targetLength: number;
   } | null = null;
 
   private prevPosition: Vec3 = [0, 0, 0];
@@ -163,9 +167,48 @@ export class PhysicsWorld implements TargetQuery {
     return [v.x, v.y, v.z];
   }
 
+  // 줄의 양방향 구속. 감기 중에는 안쪽 속도를 만들고, 완료 후에는 반경 방향 속도를 구속한다.
+  // 한 스텝 적분으로 벌어진 길이 오차는 위치를 옮기지 않고(보간이 튀고 건물을 관통한다)
+  // 다음 스텝에서 되돌릴 반경 방향 속도로만 보정한다.
+  private applyRopeConstraint(dt: number): void {
+    const anchor = this.anchor;
+    if (!anchor) return;
+
+    // 부착 직후의 짧은 당김. 줄 길이를 목표까지 일정 속도로 줄이면, 아래의 양방향 구속이
+    // 그대로 안쪽 속도를 만들어 첫 스텝부터 당긴다(위치는 옮기지 않는다).
+    // 아래 오차는 이미 줄인 길이로 계산하므로 감기 속도를 별도로 더하면 당김이 중복된다.
+    if (anchor.length > anchor.targetLength) {
+      anchor.length = Math.max(
+        anchor.targetLength,
+        anchor.length - gameConfig.physics.attachPullSpeed * dt,
+      );
+    }
+
+    const [px, py, pz] = this.getPlayerPosition();
+    const dx = px - anchor.point[0];
+    const dy = py - anchor.point[1];
+    const dz = pz - anchor.point[2];
+    const distance = Math.hypot(dx, dy, dz);
+    if (distance < 1e-6) return;
+
+    const nx = dx / distance;
+    const ny = dy / distance;
+    const nz = dz / distance;
+    const v = this.getPlayerVelocity();
+    const outward = v[0] * nx + v[1] * ny + v[2] * nz;
+
+    // 오차를 한 스텝에 되돌리는 속도. 충돌로 크게 벌어졌을 때 튀어나가지 않도록 상한을 둔다.
+    const limit = gameConfig.physics.ropeCorrectionSpeed;
+    const correction = Math.max(-limit, Math.min(limit, (anchor.length - distance) / dt));
+    const delta = outward - correction;
+    this.setPlayerVelocity([v[0] - nx * delta, v[1] - ny * delta, v[2] - nz * delta]);
+  }
+
   // 고정 60Hz accumulator가 호출하는 한 스텝. ARCHITECTURE 5절: 렌더링은 직전·현재 상태를 보간한다.
   step(): void {
     this.prevPosition = this.currPosition;
+    // 적분 전에 구속해야 Rapier가 구속된 속도로 한 스텝을 밟는다.
+    this.applyRopeConstraint(this.world.timestep);
     this.world.step(this.eventQueue);
     this.currPosition = this.getPlayerPosition();
 
@@ -199,24 +242,15 @@ export class PhysicsWorld implements TargetQuery {
     ];
   }
 
+  // length는 부착 순간의 앵커까지 거리다. 여기서 attachPullDistanceM만큼 짧아질 때까지 한 번
+  // 감기고(부착당 한 번), 그 뒤로는 해제까지 고정 줄 길이가 된다.
   attach(point: Vec3, length: number): void {
-    this.detach();
-    const anchorBody = this.world.createRigidBody(
-      RAPIER.RigidBodyDesc.fixed().setTranslation(...point),
-    );
-    const joint = this.world.createImpulseJoint(
-      RAPIER.JointData.rope(length, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }),
-      this.player,
-      anchorBody,
-      true,
-    );
-    this.anchor = { body: anchorBody, joint, point, length };
+    const targetLength = Math.max(0, length - gameConfig.physics.attachPullDistanceM);
+    this.anchor = { point, length, targetLength };
   }
 
+  // 속도를 다시 설정하지 않는다(PRD PH-05: 해제 시 속도 보존).
   detach(): void {
-    if (!this.anchor) return;
-    this.world.removeImpulseJoint(this.anchor.joint, true);
-    this.world.removeRigidBody(this.anchor.body);
     this.anchor = null;
   }
 
@@ -255,6 +289,36 @@ export class PhysicsWorld implements TargetQuery {
     if (!hit) return null;
     const point = ray.pointAt(hit.timeOfImpact);
     return { point: [point.x, point.y, point.z], distance: hit.timeOfImpact };
+  }
+
+  // 조준 방향으로 구체를 쓸어 첫 건물 접촉점을 찾는다. 미리 배치한 후보점 배열을 대신하는 조준
+  // 보정이다. 첫 접촉점을 반환하고, 접촉점까지의 직선 가시성과 사거리는 selectTarget에서 검사한다.
+  sweepBuilding(
+    origin: Vec3,
+    direction: Vec3,
+    maxDistance: number,
+    radius: number,
+  ): TargetHit | null {
+    const hit = this.world.castShape(
+      toRapierVec(origin),
+      IDENTITY_ROTATION,
+      toRapierVec(direction),
+      new RAPIER.Ball(radius),
+      0,
+      maxDistance,
+      false,
+      undefined,
+      undefined,
+      this.playerCollider,
+      undefined,
+      (collider) => this.buildingColliderHandles.has(collider.handle),
+    );
+    if (!hit) return null;
+    // rapier3d-compat 0.20에서 witness1이 건물 쪽 접촉점을 월드 좌표로 준다(witness2는 구체
+    // 로컬이다). 타입 정의 주석은 반대로 적혀 있어 실제 값을 찍어 확인했다.
+    const point: Vec3 = [hit.witness1.x, hit.witness1.y, hit.witness1.z];
+    const distance = Math.hypot(point[0] - origin[0], point[1] - origin[1], point[2] - origin[2]);
+    return { point, distance };
   }
 
   isVisible(origin: Vec3, target: Vec3): boolean {

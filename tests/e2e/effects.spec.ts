@@ -91,7 +91,7 @@ test('발사 중 정지하면 임시 효과가 사라지고 재개 후 다시 �
   await page.locator('#btn-start').click();
   const box = await page.locator('#scene').boundingBox();
   if (!box) throw new Error('canvas not found');
-  await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.35);
+  await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.18);
   // 100ms 발사 구간을 놓치지 않도록 브라우저 프레임 안에서 정지 버튼을 누른다.
   await page.evaluate(async () => {
     const path = '/host/main.ts';
@@ -116,7 +116,7 @@ test('발사 중 정지하면 임시 효과가 사라지고 재개 후 다시 �
     });
   expect(await snapshot()).toMatchObject({ beam: false, flash: false });
   await page.locator('#btn-start').click();
-  await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.35);
+  await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.18);
   await page.mouse.down();
   await expect.poll(snapshot).toMatchObject({ attached: true });
   // 네이티브 버튼 호출은 마우스 해제를 만들지 않아 부착 보존도 검증한다.
@@ -143,7 +143,7 @@ test('오디오 노드 생성 실패에도 발사·부착과 종료·재시작�
   await page.locator('#btn-start').click();
   const box = await page.locator('#scene').boundingBox();
   if (!box) throw new Error('canvas not found');
-  await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.35);
+  await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.18);
   await page.mouse.down();
   await expect
     .poll(() =>

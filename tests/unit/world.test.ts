@@ -32,21 +32,17 @@ describe('buildChunk', () => {
     expect(chunk.buildings.length).toBeGreaterThan(0);
   });
 
-  it('구간 0은 시작 직후 양쪽에 발사 가능한 표적을 보장한다', () => {
-    const chunk = buildChunk(0);
-    const start: [number, number, number] = [0, gameConfig.physics.startHeight, 0];
-    for (const side of [-1, 1]) {
-      const reachable = chunk.candidates.filter((candidate) => {
-        if (Math.sign(candidate.point[0]) !== side) return false;
-        const dx = candidate.point[0] - start[0];
-        const dy = candidate.point[1] - start[1];
-        const dz = candidate.point[2] - start[2];
-        const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        return (
-          distance >= gameConfig.web.minFireDistance && distance <= gameConfig.web.maxFireDistance
-        );
-      });
-      expect(reachable.length).toBeGreaterThan(0);
+  it('모든 구간이 같은 난수 높이 규칙을 쓴다', () => {
+    // 구간 0의 고정 높이 특례를 없앴다. 어느 구간이든 높이가 설정 범위 안에서 흩어져야 한다.
+    const [minHeight, maxHeight] = gameConfig.world.buildingHeightRangeM;
+    for (const index of [0, 1, 7]) {
+      const heights = buildChunk(index).buildings.map((building) => building.halfExtents[1] * 2);
+      expect(heights.length).toBeGreaterThan(1);
+      expect(new Set(heights).size).toBeGreaterThan(1);
+      for (const height of heights) {
+        expect(height).toBeGreaterThanOrEqual(minHeight);
+        expect(height).toBeLessThanOrEqual(maxHeight);
+      }
     }
   });
 });
@@ -77,21 +73,6 @@ describe('ChunkedWorld', () => {
     world.update(-2 * L - 1, -2); // 구간 -2에 부착한 채 전진
     expect(removed).toEqual([-1]);
     expect(world.activeChunkIndices).toContain(-2);
-  });
-
-  it('후보 배열은 같은 인스턴스를 유지하며 활성 구간만 담는다', () => {
-    const { world } = trackingWorld();
-    world.update(0, null);
-    const candidates = world.candidates;
-    const before = candidates.length;
-
-    world.update(-10 * L, null);
-    expect(world.candidates).toBe(candidates);
-    expect(candidates.length).toBeGreaterThan(0);
-    expect(before).toBeGreaterThan(0);
-    for (const candidate of candidates) {
-      expect(chunkIndexForZ(candidate.point[2])).toBeGreaterThanOrEqual(8);
-    }
   });
 
   it('reset은 모든 구간을 회수하고 시작 구간을 다시 만든다', () => {

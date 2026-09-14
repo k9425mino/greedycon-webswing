@@ -76,7 +76,7 @@ test('마우스 플레이: 건물을 겨눠 부착하면 거미줄이 표시된�
   if (!box) throw new Error('canvas not found');
 
   // 왼쪽 위(왼쪽 건물 방향)를 겨누고 유지한다. 오른쪽은 운영 패널이 캔버스를 가린다.
-  await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.35);
+  await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.18);
   await page.mouse.down();
   await page.waitForTimeout(300);
 
@@ -115,7 +115,7 @@ test('마우스 플레이: 조준점이 마우스 위치를 따라가고 표적�
     .toBeLessThan(5);
 
   // 왼쪽 건물 방향(원거리 부착 후보)을 겨누면 표적 마커가 나타난다. 실제 발사(마우스 다운) 없이 미리보기만 확인한다.
-  await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.35);
+  await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.18);
   await expect(page.locator('#target-marker')).toBeVisible({ timeout: 2000 });
   await expect(crosshair).toHaveAttribute('data-has-target', 'true');
 });

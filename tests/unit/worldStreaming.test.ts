@@ -6,6 +6,13 @@ import { PhysicsWorld } from '../../client/host/physics';
 import { createChunkMeshes } from '../../client/host/scene';
 import { defaultSwingOptions, selectTarget } from '../../client/host/web';
 
+// 수평 기준 yaw(좌우)·pitch(상하) 각도를 발사 방향 단위벡터로 바꾼다. 전방은 -Z다.
+function aimDirection(yawDeg: number, pitchDeg: number): [number, number, number] {
+  const yaw = (yawDeg * Math.PI) / 180;
+  const pitch = (pitchDeg * Math.PI) / 180;
+  return [Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)];
+}
+
 // main.ts와 같은 방식으로 월드·물리·렌더를 묶어, 멀리 전진해도 도로와 표적이 이어지는지 확인한다.
 describe('무한 도로 스트리밍', () => {
   it('500m 전진해도 앞 구간의 건물과 바닥이 존재하고 객체 수가 누적되지 않는다', async () => {
@@ -26,6 +33,7 @@ describe('무한 도로 스트리밍', () => {
     physics.createPlayer(world.startPosition);
     world.reset();
 
+    const swingOptions = defaultSwingOptions();
     const y = gameConfig.physics.startHeight;
     const counts: number[] = [];
     for (let z = 0; z >= -500; z -= 10) {
@@ -33,37 +41,15 @@ describe('무한 도로 스트리밍', () => {
       physics.setPlayerPosition([0, y, z]);
       physics.step();
 
-      // 전방 좌우에 사거리 안의 부착 후보가 항상 남아 있다.
+      // 후보점 배열이 사라졌으므로 "걸 곳이 이어진다"를 실제 발사 경로로 확인한다. 건물 사이
+      // 간격(2~6m) 때문에 특정 각도가 비는 것은 정상이라, 몇 가지 조준 중 하나만 걸리면 된다.
       for (const side of [-1, 1]) {
-        const ahead = world.candidates.filter((candidate) => {
-          if (Math.sign(candidate.point[0]) !== side) return false;
-          if (candidate.point[2] > z) return false;
-          const dx = candidate.point[0];
-          const dy = candidate.point[1] - y;
-          const dz = candidate.point[2] - z;
-          const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-          return (
-            distance >= gameConfig.web.minFireDistance && distance <= gameConfig.web.maxFireDistance
-          );
-        });
-        expect(ahead.length, `z=${z}, side=${side}에 도달 가능한 후보 없음`).toBeGreaterThan(0);
-      }
-
-      // 후보를 실제로 겨누면 selectTarget이 부착점을 돌려준다.
-      const candidate = world.candidates.find((c) => c.point[2] < z - 20 && c.point[0] < 0);
-      if (candidate) {
-        const dx = candidate.point[0];
-        const dy = candidate.point[1] - y;
-        const dz = candidate.point[2] - z;
-        const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        const target = selectTarget(
-          [0, y, z],
-          [dx / len, dy / len, dz / len],
-          world.candidates,
-          physics,
-          defaultSwingOptions(),
+        const found = [25, 35, 45].some(
+          (yawDeg) =>
+            selectTarget([0, y, z], aimDirection(side * yawDeg, 30), physics, swingOptions) !==
+            null,
         );
-        expect(target, `z=${z}에서 표적 선택 실패`).not.toBeNull();
+        expect(found, `z=${z}, side=${side}에 걸 곳 없음`).toBe(true);
       }
 
       counts.push(scene.children.length);

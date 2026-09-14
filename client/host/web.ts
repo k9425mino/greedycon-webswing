@@ -6,10 +6,14 @@ export type TargetHit = { point: Vec3; distance: number };
 
 export interface TargetQuery {
   raycastBuilding(origin: Vec3, direction: Vec3, maxDistance: number): TargetHit | null;
+  sweepBuilding(
+    origin: Vec3,
+    direction: Vec3,
+    maxDistance: number,
+    radius: number,
+  ): TargetHit | null;
   isVisible(origin: Vec3, target: Vec3): boolean;
 }
-
-export type Candidate = { point: Vec3 };
 
 export type SwingPhase = 'idle' | 'firing' | 'attached' | 'releasedRequired';
 
@@ -20,7 +24,7 @@ export type SwingOptions = {
   effectSec: number;
   minDistance: number;
   maxDistance: number;
-  coneHalfAngleDeg: number;
+  assistRadius: number;
 };
 
 function subtract(a: Vec3, b: Vec3): Vec3 {
@@ -31,56 +35,36 @@ function length(v: Vec3): number {
   return Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 }
 
-function normalize(v: Vec3): Vec3 {
-  const len = length(v) || 1;
-  return [v[0] / len, v[1] / len, v[2] / len];
-}
-
-function angleBetweenDeg(a: Vec3, b: Vec3): number {
-  const dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-  const clamped = Math.max(-1, Math.min(1, dot));
-  return (Math.acos(clamped) * 180) / Math.PI;
-}
-
 function distanceBetween(a: Vec3, b: Vec3): number {
   return length(subtract(a, b));
 }
 
-// 후보 부착점 중 조준 방향에 가장 가까운(동률이면 가까운) 가려지지 않은 점을 찾는다.
-export function findCandidateTarget(
-  origin: Vec3,
-  aimDirection: Vec3,
-  candidates: Candidate[],
-  query: TargetQuery,
-  options: SwingOptions,
-): TargetHit | null {
-  let best: { hit: TargetHit; angle: number } | null = null;
-  for (const candidate of candidates) {
-    const toCandidate = subtract(candidate.point, origin);
-    const distance = length(toCandidate);
-    if (distance < options.minDistance || distance > options.maxDistance) continue;
-    const direction = normalize(toCandidate);
-    const angle = angleBetweenDeg(aimDirection, direction);
-    if (angle > options.coneHalfAngleDeg) continue;
-    if (!query.isVisible(origin, candidate.point)) continue;
-    if (!best || angle < best.angle || (angle === best.angle && distance < best.hit.distance)) {
-      best = { hit: { point: candidate.point, distance }, angle };
-    }
-  }
-  return best?.hit ?? null;
-}
-
-// 직접 맞힌 건물 표면을 우선하고, 없으면 보정 원뿔 안의 후보를 찾는다(ARCHITECTURE 5절).
+// 직접 맞힌 건물 표면을 우선하고, 없으면 조준 방향으로 구체를 쓸어 벽면 접촉점을 찾는다
+// (ARCHITECTURE 5절). 벽면의 높이는 보지 않는다 — 조준한 지점 그대로 부착한다.
 export function selectTarget(
   origin: Vec3,
   aimDirection: Vec3,
-  candidates: Candidate[],
   query: TargetQuery,
   options: SwingOptions,
 ): TargetHit | null {
+  // 직접 조준 우선(PRD IN-05). 스윕은 구체 반지름만큼 앞에서 맞아 조준한 지점과 미묘하게 다르다.
   const direct = query.raycastBuilding(origin, aimDirection, options.maxDistance);
   if (direct && direct.distance >= options.minDistance) return direct;
-  return findCandidateTarget(origin, aimDirection, candidates, query, options);
+  const swept = query.sweepBuilding(
+    origin,
+    aimDirection,
+    options.maxDistance,
+    options.assistRadius,
+  );
+  // 스윕 이동 거리와 벽면 접촉점까지 거리는 다르다. 미리보기도 부착 시점과 같은 조건으로 거른다.
+  if (
+    !swept ||
+    swept.distance < options.minDistance ||
+    swept.distance > options.maxDistance ||
+    !query.isVisible(origin, swept.point)
+  )
+    return null;
+  return swept;
 }
 
 export type SwingCallbacks = {
@@ -101,7 +85,6 @@ export class WebSwing {
 
   constructor(
     private query: TargetQuery,
-    private candidates: Candidate[],
     private options: SwingOptions,
   ) {}
 
@@ -118,7 +101,7 @@ export class WebSwing {
 
     if (this.phase === 'idle') {
       if (!risingEdge) return;
-      const target = selectTarget(origin, aimDirection, this.candidates, this.query, this.options);
+      const target = selectTarget(origin, aimDirection, this.query, this.options);
       if (target) {
         this.phase = 'firing';
         this.pendingTarget = target;
@@ -135,7 +118,8 @@ export class WebSwing {
     if (this.phase === 'firing') {
       if (fallingEdge) {
         this.failure = 'releasedWhileFiring';
-        this.phase = 'releasedRequired';
+        // 이미 손을 뗐으므로 추가 해제를 기다리면 바로 이어진 다음 누름을 놓친다.
+        this.phase = 'idle';
         this.pendingTarget = null;
         return;
       }
@@ -144,13 +128,14 @@ export class WebSwing {
       this.pendingTarget = null;
       const distance = target ? distanceBetween(origin, target.point) : Infinity;
       const inRange = distance >= this.options.minDistance && distance <= this.options.maxDistance;
+      // 발사 연출 동안 플레이어가 움직이므로 거리·가시성을 다시 본다.
       const stillValid = target !== null && inRange && this.query.isVisible(origin, target.point);
       if (stillValid && target) {
         this.failure = null;
         callbacks.onAttach({ point: target.point, distance });
         this.phase = 'attached';
       } else {
-        this.failure = !target ? 'noTarget' : inRange ? 'occluded' : 'outOfRange';
+        this.failure = !target ? 'noTarget' : !inRange ? 'outOfRange' : 'occluded';
         this.phase = 'releasedRequired';
       }
       return;
@@ -194,6 +179,6 @@ export function defaultSwingOptions(): SwingOptions {
     effectSec: gameConfig.web.fireEffectSec,
     minDistance: gameConfig.web.minFireDistance,
     maxDistance: gameConfig.web.maxFireDistance,
-    coneHalfAngleDeg: gameConfig.calibrationSearchHalfAngleDeg,
+    assistRadius: gameConfig.web.aimAssistRadiusM,
   };
 }

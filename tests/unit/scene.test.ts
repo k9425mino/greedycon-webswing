@@ -31,6 +31,22 @@ it('정면으로 빗나간 발사도 화면에서 길이를 가진 선으로 보
   line.geometry.dispose();
 });
 
+it('카메라 위치에서 시작한 부착 줄도 화면에서 길이를 가진 선으로 보인다', () => {
+  const line = createRopeLine(new THREE.Scene());
+  // 부착 줄의 시작점은 매 프레임 카메라(=플레이어) 위치다. 오프셋이 없으면 한 점으로 투영된다.
+  updateRopeLine(line, [0, 0, 0], [0, 12, -20]);
+  const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 500);
+  const positions = line.geometry.getAttribute('position');
+  const start = new THREE.Vector3().fromBufferAttribute(positions, 0).project(camera);
+  const end = new THREE.Vector3().fromBufferAttribute(positions, 1).project(camera);
+
+  expect([start.x, start.y, start.z].every(Number.isFinite)).toBe(true);
+  expect(Math.hypot(start.x - end.x, start.y - end.y)).toBeGreaterThan(0.1);
+  // 물리 앵커(끝점)는 옮기지 않는다.
+  expect(new THREE.Vector3().fromBufferAttribute(positions, 1).toArray()).toEqual([0, 12, -20]);
+  line.geometry.dispose();
+});
+
 it('이동한 거미줄이 카메라 안에 있으면 이전 위치의 경계 때문에 숨겨지지 않는다', () => {
   const line = createRopeLine(new THREE.Scene());
   expect((line.material as THREE.LineBasicMaterial).color.getHex()).toBe(0xffffff);

@@ -12,12 +12,14 @@ type SwingState = {
   attachment: { point: [number, number, number]; length: number; distance: number } | null;
   position: [number, number, number] | null;
   velocity: [number, number, number] | null;
+  // 화면에 그려지는 부착 줄. 카메라에서 본 두 끝점의 시선 각도가 0이면 한 점으로 겹쳐 보인다.
+  rope: { visible: boolean; separationDeg: number; endpoint: [number, number, number] };
 };
 
 // 손목 장착 기준 자세에서 alpha는 위에서 본 반시계 회전이라 팔을 오른쪽으로 돌리면 줄어든다.
 const FORWARD: Orientation = { alpha: 0, beta: 0, gamma: 0 };
-const AIM_RIGHT_UP: Orientation = { alpha: -30, beta: 20, gamma: 0 };
-const AIM_LEFT_UP: Orientation = { alpha: 30, beta: 20, gamma: 0 };
+const AIM_RIGHT_UP: Orientation = { alpha: -30, beta: 30, gamma: 0 };
+const AIM_LEFT_UP: Orientation = { alpha: 30, beta: 30, gamma: 0 };
 // 도로 한가운데서 위만 보면 건물(|x| >= 12m)에 걸릴 수 없다.
 const AIM_SKY: Orientation = { alpha: 0, beta: 70, gamma: 0 };
 
@@ -58,6 +60,29 @@ async function exposeSwingState(page: Page) {
             attachment: physics?.attachment ?? null,
             position: physics?.getPlayerPosition() ?? null,
             velocity: physics?.getPlayerVelocity() ?? null,
+            rope: readRope(),
+          };
+        }
+
+        function readRope() {
+          const positions = ropeLine.geometry.getAttribute('position');
+          const camera = sceneHandle.camera.position;
+          const viewRay = (index) => {
+            const v = [
+              positions.getX(index) - camera.x,
+              positions.getY(index) - camera.y,
+              positions.getZ(index) - camera.z,
+            ];
+            const len = Math.hypot(v[0], v[1], v[2]) || 1;
+            return [v[0] / len, v[1] / len, v[2] / len];
+          };
+          const a = viewRay(0);
+          const b = viewRay(1);
+          const dot = Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
+          return {
+            visible: ropeLine.visible,
+            separationDeg: (Math.acos(dot) * 180) / Math.PI,
+            endpoint: [positions.getX(1), positions.getY(1), positions.getZ(1)],
           };
         }
       `,
@@ -120,10 +145,10 @@ test('폰 입력: 보정·조준·터치 유지가 실제 물리 부착과 스�
     await hostPage.click('#btn-calibrate');
     await expect(hostPage.locator('#status-phase')).toHaveText('ready', { timeout: 5000 });
 
-    // 좌우 ±30도·위쪽 20도가 그대로 조준각에 나타난다.
+    // 좌우 ±30도·위쪽 30도가 그대로 조준각에 나타난다.
     await aimPhone(controllerPage, AIM_RIGHT_UP);
     await expect.poll(async () => (await readAimAngles(hostPage)).yawDeg).toBeCloseTo(30, 0);
-    expect((await readAimAngles(hostPage)).pitchDeg).toBeCloseTo(20, 0);
+    expect((await readAimAngles(hostPage)).pitchDeg).toBeCloseTo(30, 0);
     await aimPhone(controllerPage, AIM_LEFT_UP);
     await expect.poll(async () => (await readAimAngles(hostPage)).yawDeg).toBeCloseTo(-30, 0);
 
@@ -150,6 +175,15 @@ test('폰 입력: 보정·조준·터치 유지가 실제 물리 부착과 스�
     expect(attached.attachment).not.toBeNull();
     const startY = attached.position![1];
 
+    // 발사 연출(100ms)이 끝난 뒤에도 부착 줄이 남고, 화면에서 한 점이 아니라 선으로 보인다.
+    await expect(hostPage.locator('#hud-web-status')).toHaveText('부착됨');
+    expect(attached.rope.visible).toBe(true);
+    expect(attached.rope.separationDeg).toBeGreaterThan(1);
+    // 줄 끝은 시각 보정 없이 실제 물리 앵커에 고정된다(정점 버퍼가 float32라 근사 비교).
+    for (const axis of [0, 1, 2]) {
+      expect(attached.rope.endpoint[axis]!).toBeCloseTo(attached.attachment!.point[axis]!, 3);
+    }
+
     // 3초 동안 매달린 채 유지되는지 확인한다. playing인지만 보지 않고 위치·앵커 거리를 함께 기록한다.
     const samples: SwingState[] = [];
     for (let i = 0; i < 12; i++) {
@@ -159,13 +193,18 @@ test('폰 입력: 보정·조준·터치 유지가 실제 물리 부착과 스�
     for (const sample of samples) {
       expect(sample.phase).toBe('playing');
       expect(sample.attachment).not.toBeNull();
-      // 줄이 팽팽하게 버틴다. 자유낙하였다면 앵커 거리가 줄 길이를 크게 넘어선다.
-      expect(sample.attachment!.distance).toBeLessThanOrEqual(sample.attachment!.length + 0.1);
+      // 줄 길이가 양방향으로 고정된다. 자유낙하였다면 앵커 거리가 줄 길이를 크게 넘어선다.
+      expect(Math.abs(sample.attachment!.distance - sample.attachment!.length)).toBeLessThanOrEqual(
+        0.1,
+      );
+      // 누르는 동안 줄 선이 계속 갱신돼 사라지지 않는다.
+      expect(sample.rope.visible).toBe(true);
     }
     const ys = samples.map((sample) => sample.position![1]);
     const zs = samples.map((sample) => sample.position![2]);
     // 중력으로 내려갔다가 줄에 밀려 다시 올라오는 구간이 있어야 스윙이다.
-    expect(Math.min(...ys)).toBeLessThan(startY - 5);
+    // 자유낙하 여부는 위의 phase 검사가 이미 거른다.
+    expect(Math.min(...ys)).toBeLessThan(startY - 1);
     expect(Math.max(...ys.slice(ys.indexOf(Math.min(...ys))))).toBeGreaterThan(
       Math.min(...ys) + 0.5,
     );

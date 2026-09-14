@@ -1,55 +1,86 @@
 import { describe, expect, it } from 'vitest';
-import { WebSwing, selectTarget, type TargetHit, type TargetQuery } from '../../client/host/web';
+import { selectTarget, WebSwing, type TargetHit, type TargetQuery } from '../../client/host/web';
 
-const options = { effectSec: 0.1, minDistance: 3, maxDistance: 70, coneHalfAngleDeg: 12 };
+const options = {
+  effectSec: 0.1,
+  minDistance: 3,
+  maxDistance: 70,
+  assistRadius: 2.5,
+};
 
 function query(overrides: Partial<TargetQuery> = {}): TargetQuery {
   return {
     raycastBuilding: () => null,
+    sweepBuilding: () => null,
     isVisible: () => true,
     ...overrides,
   };
 }
 
 describe('selectTarget', () => {
+  const high: TargetHit = { point: [1, 6, -10], distance: Math.hypot(1, 6, 10) };
+
   it('건물에 직접 맞으면 그 지점을 우선한다', () => {
-    const directHit: TargetHit = { point: [1, 2, -10], distance: 10 };
-    const q = query({ raycastBuilding: () => directHit });
-    const result = selectTarget([0, 0, 0], [0, 0, -1], [], q, options);
-    expect(result).toEqual(directHit);
+    const q = query({ raycastBuilding: () => high });
+    expect(selectTarget([0, 0, 0], [0, 0, -1], q, options)).toEqual(high);
   });
 
-  it('직접 명중이 없으면 조준 원뿔 안의 가까운 후보를 선택한다', () => {
-    const q = query();
-    const candidates = [
-      { point: [0, 0, -10] as [number, number, number] }, // 정면, 각도 0
-      { point: [5, 0, -10] as [number, number, number] }, // 각도 있음
-    ];
-    const result = selectTarget([0, 0, 0], [0, 0, -1], candidates, q, options);
-    expect(result?.point).toEqual([0, 0, -10]);
+  it('직접 명중이 없으면 구체 스윕 결과를 쓴다', () => {
+    const q = query({ sweepBuilding: () => high });
+    expect(selectTarget([0, 0, 0], [0, 0, -1], q, options)).toEqual(high);
   });
 
-  it('원뿔 밖의 후보는 선택하지 않는다', () => {
-    const q = query();
-    const candidates = [{ point: [50, 0, -10] as [number, number, number] }];
-    const result = selectTarget([0, 0, 0], [0, 0, -1], candidates, q, options);
-    expect(result).toBeNull();
+  it('직접 명중도 스윕도 없으면 표적이 없다', () => {
+    expect(selectTarget([0, 0, 0], [0, 0, -1], query(), options)).toBeNull();
   });
 
-  it('가려진 후보는 선택하지 않는다', () => {
-    const q = query({ isVisible: () => false });
-    const candidates = [{ point: [0, 0, -10] as [number, number, number] }];
-    const result = selectTarget([0, 0, 0], [0, 0, -1], candidates, q, options);
-    expect(result).toBeNull();
+  it('최소 사거리보다 가까우면 선택하지 않는다', () => {
+    const near: TargetHit = { point: [0, 1, -1], distance: Math.hypot(1, 1) };
+    const q = query({ raycastBuilding: () => near, sweepBuilding: () => near });
+    expect(selectTarget([0, 0, 0], [0, 0, -1], q, options)).toBeNull();
+  });
+
+  it('스윕 접촉점이 최대 사거리 밖이면 미리보기 표적으로 선택하지 않는다', () => {
+    const far: TargetHit = { point: [2, 0, -70], distance: Math.hypot(2, 70) };
+    expect(
+      selectTarget([0, 0, 0], [0, 0, -1], query({ sweepBuilding: () => far }), options),
+    ).toBeNull();
+  });
+
+  it('스윕 접촉점까지 직선 경로가 가려지면 선택하지 않는다', () => {
+    const q = query({ sweepBuilding: () => high, isVisible: () => false });
+    expect(selectTarget([0, 0, 0], [0, 0, -1], q, options)).toBeNull();
+  });
+
+  it('수평·아래쪽 벽면도 조준한 지점 그대로 선택한다', () => {
+    const level: TargetHit = { point: [0, 0, -10], distance: 10 };
+    const below: TargetHit = { point: [0, -6, -10], distance: Math.hypot(6, 10) };
+    expect(
+      selectTarget([0, 0, 0], [0, 0, -1], query({ raycastBuilding: () => level }), options),
+    ).toEqual(level);
+    expect(
+      selectTarget([0, 0, 0], [0, 0, -1], query({ raycastBuilding: () => below }), options),
+    ).toEqual(below);
   });
 });
 
 describe('WebSwing', () => {
-  const target: TargetHit = { point: [0, 0, -10], distance: 10 };
+  const target: TargetHit = { point: [0, 6, -10], distance: Math.hypot(6, 10) };
 
   function makeSwing(query_: TargetQuery = query({ raycastBuilding: () => target })) {
-    return new WebSwing(query_, [], options);
+    return new WebSwing(query_, options);
   }
+
+  it('발사 중 뗀 다음 바로 다시 눌러도 다음 발사가 시작된다', () => {
+    const swing = makeSwing();
+    const callbacks = { onAttach: () => {}, onRelease: () => {} };
+    swing.update(true, 0, [0, 0, 0], [0, 0, -1], callbacks);
+    swing.update(false, 0.02, [0, 0, 0], [0, 0, -1], callbacks);
+    swing.update(true, 0.04, [0, 0, 0], [0, 0, -1], callbacks);
+    expect(swing.phase).toBe('firing');
+    swing.update(true, 0.15, [0, 0, 0], [0, 0, -1], callbacks);
+    expect(swing.phase).toBe('attached');
+  });
 
   it('한 번 누를 때 한 번만 발사·부착한다', () => {
     const swing = makeSwing();
@@ -90,7 +121,7 @@ describe('WebSwing', () => {
     expect(swing.lastFailure).toBe('noTarget');
   });
 
-  it('발사 효과 중 손을 떼면 부착하지 않고 releasedRequired로 이동한다', () => {
+  it('발사 효과 중 손을 떼면 부착하지 않고 idle로 돌아온다', () => {
     const swing = makeSwing();
     let attachCount = 0;
     const callbacks = { onAttach: () => attachCount++, onRelease: () => {} };
@@ -98,7 +129,7 @@ describe('WebSwing', () => {
     swing.update(true, 0, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('firing');
     swing.update(false, 0.05, [0, 0, 0], [0, 0, -1], callbacks);
-    expect(swing.phase).toBe('releasedRequired');
+    expect(swing.phase).toBe('idle');
     expect(swing.lastFailure).toBe('releasedWhileFiring');
     swing.update(false, 0.2, [0, 0, 0], [0, 0, -1], callbacks);
     expect(attachCount).toBe(0);
@@ -120,7 +151,7 @@ describe('WebSwing', () => {
 
   it('효과 완료 시점에 표적이 더 이상 유효하지 않으면 부착하지 않는다', () => {
     // 발사 순간엔 사거리 안이지만, 재확인 시점(플레이어 이동)엔 최대 거리를 벗어난 경우
-    const farTarget: TargetHit = { point: [0, 0, -10], distance: 10 };
+    const farTarget: TargetHit = { point: [0, 6, -10], distance: Math.hypot(6, 10) };
     const swing = makeSwing(query({ raycastBuilding: () => farTarget }));
     let attachCount = 0;
     const callbacks = { onAttach: () => attachCount++, onRelease: () => {} };
@@ -223,5 +254,31 @@ describe('WebSwing', () => {
     swing.update(false, 0.1, [0, 0, 0], [0, 0, -1], callbacks);
     swing.update(true, 0.2, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('firing');
+  });
+});
+
+describe('WebSwing 실패 사유 구분', () => {
+  it('낮은 벽면도 높이와 무관하게 부착한다', () => {
+    const low: TargetHit = { point: [0, 1, -10], distance: Math.hypot(1, 10) };
+    const swing = new WebSwing(query({ raycastBuilding: () => low }), options);
+    const attached: TargetHit[] = [];
+    const callbacks = {
+      onAttach: (hit: TargetHit) => attached.push(hit),
+      onRelease: () => {},
+    };
+
+    swing.update(true, 0, [0, 0, 0], [0, 0, -1], callbacks);
+    expect(swing.phase).toBe('firing');
+    swing.update(true, 0.1, [0, 0, 0], [0, 0, -1], callbacks);
+    expect(swing.phase).toBe('attached');
+    expect(attached[0]!.point).toEqual(low.point);
+    expect(swing.lastFailure).toBeNull();
+  });
+
+  it('건물 자체가 없으면 noTarget으로 남긴다', () => {
+    const swing = new WebSwing(query(), options);
+
+    swing.update(true, 0, [0, 0, 0], [0, 0, -1], { onAttach: () => {}, onRelease: () => {} });
+    expect(swing.lastFailure).toBe('noTarget');
   });
 });

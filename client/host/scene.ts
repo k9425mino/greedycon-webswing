@@ -253,14 +253,22 @@ export function createRopeLine(scene: THREE.Scene): THREE.Line {
   return line;
 }
 
+// 카메라 원점에서 시작하면 선 전체가 한 점으로 투영된다. 전방 고정 카메라의 오른쪽 아래에서
+// 보이게 옮기되, 실제 발사 판정과 물리 앵커(끝점)는 그대로 둔다.
+function withBeamOrigin(from: Vec3): Vec3 {
+  const offset = gameConfig.effects.beamOriginOffsetM;
+  return [from[0] + offset[0], from[1] + offset[1], from[2] + offset[2]];
+}
+
 export function updateRopeLine(line: THREE.Line, from: Vec3, to: Vec3 | null): void {
   if (!to) {
     line.visible = false;
     return;
   }
   line.visible = true;
+  const start = withBeamOrigin(from);
   const positions = line.geometry.attributes.position as THREE.BufferAttribute;
-  positions.setXYZ(0, from[0], from[1], from[2]);
+  positions.setXYZ(0, start[0], start[1], start[2]);
   positions.setXYZ(1, to[0], to[1], to[2]);
   positions.needsUpdate = true;
   // 정점 이동만으로는 프러스텀 판정에 쓰는 경계가 갱신되지 않는다.
@@ -285,10 +293,7 @@ export function updateFireBeamLine(
   to: Vec3 | null,
   opacity: number,
 ): void {
-  // 카메라 원점에서 시작하면 선 전체가 한 점으로 투영된다. 전방 고정 카메라의
-  // 오른쪽 아래에서 보이게 옮기되, 실제 발사 판정과 끝점은 그대로 둔다.
-  const offset = gameConfig.effects.fireBeamOriginOffsetM;
-  updateRopeLine(line, [from[0] + offset[0], from[1] + offset[1], from[2] + offset[2]], to);
+  updateRopeLine(line, from, to);
   (line.material as THREE.LineBasicMaterial).opacity = opacity;
 }
 

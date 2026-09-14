@@ -120,8 +120,8 @@ function guideMessageFor(currentPhase: GamePhase): string | null {
       return '손목에 폰을 고정했다면 "게임 시작"을 눌러주세요.';
     case 'playing':
       return mouseMode
-        ? '건물을 겨누고 마우스 왼쪽 버튼을 눌러 거미줄을 발사하세요.'
-        : '건물을 겨누고 화면을 눌러 거미줄을 발사하세요. 손을 떼면 날아갑니다.';
+        ? '건물 위쪽을 겨누고 마우스 왼쪽 버튼을 눌러 거미줄을 발사하세요.'
+        : '건물 위쪽을 겨누고 화면을 눌러 거미줄을 발사하세요. 손을 떼면 날아갑니다.';
     default:
       return null;
   }
@@ -181,7 +181,7 @@ const world = new ChunkedWorld({
   },
 });
 
-// TODO: ARCHITECTURE 5절의 1,000m 좌표 재기준화는 아직 구현하지 않았다. 부착 중인 joint·앵커·보간
+// TODO: ARCHITECTURE 5절의 1,000m 좌표 재기준화는 아직 구현하지 않았다. 부착 중인 앵커·줄 길이·보간
 // 상태를 한 프레임에 함께 옮겨야 해 스윙 중 위험이 크고, 이 게임 길이(수 분)에서는 f32 해상도가 충분하다.
 // 장시간 실행에서 좌표 정밀도 문제가 관측되면 구현한다.
 
@@ -191,7 +191,7 @@ PhysicsWorld.create()
     physics.createPlayer(world.startPosition);
     world.reset();
     progress.reset(world.startPosition[2]);
-    swing = new WebSwing(physics, world.candidates, swingOptions);
+    swing = new WebSwing(physics, swingOptions);
     physicsReady = true;
     statusPhysics.textContent = '준비됨';
     refreshStatusText();
@@ -361,7 +361,7 @@ function directionTo(from: Vec3, to: Vec3): Vec3 {
 function computePreviewTarget() {
   if (!physics || !swing || phase !== 'playing' || swing.phase !== 'idle') return null;
   const origin = physics.getPlayerPosition();
-  return selectTarget(origin, currentAimDirection, world.candidates, physics, swingOptions);
+  return selectTarget(origin, currentAimDirection, physics, swingOptions);
 }
 
 // 조준점·표적 마커 모두 실제 발사 방향(currentAimDirection)을 카메라로 투영해 표시한다.
