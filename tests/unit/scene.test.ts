@@ -11,6 +11,7 @@ import { buildChunk } from '../../client/host/world';
 
 it('정면으로 빗나간 발사도 화면에서 길이를 가진 선으로 보인다', () => {
   const line = createFireBeamLine(new THREE.Scene());
+  expect((line.material as THREE.LineBasicMaterial).color.getHex()).toBe(0xffffff);
   updateFireBeamLine(line, [0, 0, 0], [0, 0, -70], 1);
   const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 500);
   const positions = line.geometry.getAttribute('position');
@@ -32,6 +33,7 @@ it('정면으로 빗나간 발사도 화면에서 길이를 가진 선으로 보
 
 it('이동한 거미줄이 카메라 안에 있으면 이전 위치의 경계 때문에 숨겨지지 않는다', () => {
   const line = createRopeLine(new THREE.Scene());
+  expect((line.material as THREE.LineBasicMaterial).color.getHex()).toBe(0xffffff);
   updateRopeLine(line, [100, 0, -10], [110, 0, -10]);
   line.geometry.computeBoundingSphere();
   updateRopeLine(line, [0, 0, -10], [0, 5, -10]);

@@ -94,6 +94,25 @@ body {
   color: #f92672;
 }
 
+/* 발사 중 / 부착됨 / 빗나감. 부착 표시는 실제 물리 부착에서만 켠다. */
+#hud-web-status {
+  margin-top: 8px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+#hud-web-status[data-state='attached'] {
+  color: #7ee787;
+}
+
+#hud-web-status[data-state='firing'] {
+  color: #ffd866;
+}
+
+#hud-web-status[data-state='missed'] {
+  color: #ff8f8f;
+}
+
 #panel {
   position: static;
   flex: 0 0 320px;

@@ -63,6 +63,7 @@ describe('WebSwing', () => {
     swing.update(true, 0.1, [0, 0, 0], [0, 0, -1], callbacks); // 효과 완료
     expect(swing.phase).toBe('attached');
     expect(attachCount).toBe(1);
+    expect(swing.lastFailure).toBeNull();
 
     // 계속 누르고 있어도 재발사하지 않는다
     swing.update(true, 0.2, [0, 0, 0], [0, 0, -1], callbacks);
@@ -77,6 +78,7 @@ describe('WebSwing', () => {
 
     swing.update(true, 0, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('releasedRequired');
+    expect(swing.lastFailure).toBe('noTarget');
 
     swing.update(true, 0.1, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('releasedRequired');
@@ -84,6 +86,8 @@ describe('WebSwing', () => {
 
     swing.update(false, 0.2, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('idle');
+    // 실패 사유는 다음 발사까지 남아 진단에 보인다.
+    expect(swing.lastFailure).toBe('noTarget');
   });
 
   it('발사 효과 중 손을 떼면 부착하지 않고 releasedRequired로 이동한다', () => {
@@ -95,6 +99,7 @@ describe('WebSwing', () => {
     expect(swing.phase).toBe('firing');
     swing.update(false, 0.05, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('releasedRequired');
+    expect(swing.lastFailure).toBe('releasedWhileFiring');
     swing.update(false, 0.2, [0, 0, 0], [0, 0, -1], callbacks);
     expect(attachCount).toBe(0);
   });
@@ -126,6 +131,26 @@ describe('WebSwing', () => {
     swing.update(true, 0.1, [0, 0, -85], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('releasedRequired');
     expect(attachCount).toBe(0);
+    expect(swing.lastFailure).toBe('outOfRange');
+  });
+
+  it('효과 완료 시점에 표적이 가려지면 가림을 실패 사유로 남긴다', () => {
+    let visible = true;
+    const swing = makeSwing(query({ raycastBuilding: () => target, isVisible: () => visible }));
+    let attachCount = 0;
+    const callbacks = { onAttach: () => attachCount++, onRelease: () => {} };
+
+    swing.update(true, 0, [0, 0, 0], [0, 0, -1], callbacks);
+    expect(swing.phase).toBe('firing');
+    visible = false;
+    swing.update(true, 0.1, [0, 0, 0], [0, 0, -1], callbacks);
+    expect(swing.phase).toBe('releasedRequired');
+    expect(attachCount).toBe(0);
+    expect(swing.lastFailure).toBe('occluded');
+
+    // 새 게임·재시작 기준을 다시 잡으면 실패 사유도 지워진다.
+    swing.reset();
+    expect(swing.lastFailure).toBeNull();
   });
 
   it('firing 시작 시 onFireStart를 한 번만 호출하고 pendingTargetPoint를 노출한다', () => {

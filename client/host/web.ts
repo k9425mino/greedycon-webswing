@@ -13,6 +13,9 @@ export type Candidate = { point: Vec3 };
 
 export type SwingPhase = 'idle' | 'firing' | 'attached' | 'releasedRequired';
 
+// 부착에 실패한 이유. 진단 표시용이며 상태 전이에는 쓰지 않는다.
+export type FireFailure = 'noTarget' | 'releasedWhileFiring' | 'outOfRange' | 'occluded';
+
 export type SwingOptions = {
   effectSec: number;
   minDistance: number;
@@ -94,6 +97,7 @@ export class WebSwing {
   private pendingTarget: TargetHit | null = null;
   private fireStartedAt = 0;
   private lastPressed = false;
+  private failure: FireFailure | null = null;
 
   constructor(
     private query: TargetQuery,
@@ -122,6 +126,7 @@ export class WebSwing {
         callbacks.onFireStart?.(target);
       } else {
         callbacks.onFireMiss?.(aimDirection);
+        this.failure = 'noTarget';
         this.phase = 'releasedRequired';
       }
       return;
@@ -129,6 +134,7 @@ export class WebSwing {
 
     if (this.phase === 'firing') {
       if (fallingEdge) {
+        this.failure = 'releasedWhileFiring';
         this.phase = 'releasedRequired';
         this.pendingTarget = null;
         return;
@@ -137,15 +143,14 @@ export class WebSwing {
       const target = this.pendingTarget;
       this.pendingTarget = null;
       const distance = target ? distanceBetween(origin, target.point) : Infinity;
-      const stillValid =
-        target !== null &&
-        distance >= this.options.minDistance &&
-        distance <= this.options.maxDistance &&
-        this.query.isVisible(origin, target.point);
+      const inRange = distance >= this.options.minDistance && distance <= this.options.maxDistance;
+      const stillValid = target !== null && inRange && this.query.isVisible(origin, target.point);
       if (stillValid && target) {
+        this.failure = null;
         callbacks.onAttach({ point: target.point, distance });
         this.phase = 'attached';
       } else {
+        this.failure = !target ? 'noTarget' : inRange ? 'occluded' : 'outOfRange';
         this.phase = 'releasedRequired';
       }
       return;
@@ -170,6 +175,12 @@ export class WebSwing {
     this.phase = 'idle';
     this.pendingTarget = null;
     this.lastPressed = currentlyPressed;
+    this.failure = null;
+  }
+
+  // 마지막 발사가 부착에 실패한 이유. 부착에 성공하면 null이 된다.
+  get lastFailure(): FireFailure | null {
+    return this.failure;
   }
 
   // 발사 진행 중 표적점(시각 효과용). firing 단계가 아니면 null이다.

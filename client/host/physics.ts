@@ -25,7 +25,12 @@ export class PhysicsWorld implements TargetQuery {
   private groundColliderHandles = new Set<number>();
   private buildingColliderHandles = new Set<number>();
   private chunkBodies = new Map<number, RAPIER.RigidBody[]>();
-  private anchor: { body: RAPIER.RigidBody; joint: RAPIER.ImpulseJoint } | null = null;
+  private anchor: {
+    body: RAPIER.RigidBody;
+    joint: RAPIER.ImpulseJoint;
+    point: Vec3;
+    length: number;
+  } | null = null;
 
   private prevPosition: Vec3 = [0, 0, 0];
   private currPosition: Vec3 = [0, 0, 0];
@@ -172,7 +177,7 @@ export class PhysicsWorld implements TargetQuery {
       anchorBody,
       true,
     );
-    this.anchor = { body: anchorBody, joint };
+    this.anchor = { body: anchorBody, joint, point, length };
   }
 
   detach(): void {
@@ -186,9 +191,24 @@ export class PhysicsWorld implements TargetQuery {
     return this.anchor !== null;
   }
 
+  // 진단용 읽기 전용 부착 정보. Rapier 객체는 노출하지 않는다.
+  get attachment(): { point: Vec3; length: number; distance: number } | null {
+    if (!this.anchor) return null;
+    const [px, py, pz] = this.getPlayerPosition();
+    const [ax, ay, az] = this.anchor.point;
+    return {
+      point: this.anchor.point,
+      length: this.anchor.length,
+      distance: Math.hypot(px - ax, py - ay, pz - az),
+    };
+  }
+
   // TargetQuery 구현 (web.ts의 표적 선택이 사용).
   raycastBuilding(origin: Vec3, direction: Vec3, maxDistance: number): TargetHit | null {
-    const ray = new RAPIER.Ray({ x: origin[0], y: origin[1], z: origin[2] }, toRapierVec(direction));
+    const ray = new RAPIER.Ray(
+      { x: origin[0], y: origin[1], z: origin[2] },
+      toRapierVec(direction),
+    );
     const hit = this.world.castRayAndGetNormal(
       ray,
       maxDistance,

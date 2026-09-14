@@ -41,7 +41,13 @@ import { isMouseInputEnabled, MouseAimInput } from './mouseInput';
 import { PhysicsWorld, type Vec3 } from './physics';
 import { ChunkedWorld, chunkIndexForZ } from './world';
 import { Progress } from './progress';
-import { defaultSwingOptions, selectTarget, WebSwing } from './web';
+import {
+  defaultSwingOptions,
+  selectTarget,
+  WebSwing,
+  type FireFailure,
+  type TargetHit,
+} from './web';
 import { SfxPlayer } from './audio';
 
 const qrImage = document.getElementById('qr-image') as HTMLImageElement;
@@ -62,6 +68,12 @@ const hudScore = document.getElementById('hud-score') as HTMLElement;
 const hudSpeed = document.getElementById('hud-speed') as HTMLElement;
 const hudStall = document.getElementById('hud-stall') as HTMLElement;
 const hudStallLeft = document.getElementById('hud-stall-left') as HTMLElement;
+const hudWebStatus = document.getElementById('hud-web-status') as HTMLElement;
+const diagAim = document.getElementById('diag-aim') as HTMLElement;
+const diagTarget = document.getElementById('diag-target') as HTMLElement;
+const diagWebPhase = document.getElementById('diag-web-phase') as HTMLElement;
+const diagWebFailure = document.getElementById('diag-web-failure') as HTMLElement;
+const diagAttach = document.getElementById('diag-attach') as HTMLElement;
 const diagSensorHz = document.getElementById('diag-sensor-hz') as HTMLElement;
 const diagSendHz = document.getElementById('diag-send-hz') as HTMLElement;
 const diagRecvHz = document.getElementById('diag-recv-hz') as HTMLElement;
@@ -85,6 +97,14 @@ const RECOVERY_MESSAGES: Record<PauseReason, string> = {
   fall: '추락으로 종료되었습니다.',
   stalled: '전진 정체로 종료되었습니다.',
   operator: '운영자가 중지했습니다.',
+};
+
+// 발사가 부착으로 이어지지 못한 이유. 실기기에서 어느 판정이 걸렀는지 구분하기 위한 진단 문구다.
+const FIRE_FAILURE_MESSAGES: Record<FireFailure, string> = {
+  noTarget: '표적 없음',
+  releasedWhileFiring: '발사 도중 해제',
+  outOfRange: '사거리 이탈',
+  occluded: '가림',
 };
 
 // 화면 단계별로 다음에 할 일을 안내한다(pairing/calibrating/ready/playing). paused·gameOver는
@@ -142,6 +162,9 @@ let attachFlashStartMs: number | null = null;
 
 // 표적 없이 발사했을 때 잠깐 뻗었다 사라지는 거미줄. 끝점은 발사 순간 좌표로 고정한다.
 let missBeam: { point: Vec3; startedAtMs: number } | null = null;
+
+// 조준점 갱신에서 계산한 부착 예정점. 표시와 진단이 같은 값을 쓰도록 보관한다.
+let previewTarget: TargetHit | null = null;
 
 // 구간 생성·회수는 렌더 mesh와 물리 콜라이더를 같은 단위로 함께 붙였다 뗀다.
 const world = new ChunkedWorld({
@@ -342,6 +365,7 @@ function updateCrosshair() {
 
   const hasAim = mouseMode || (latestOrientation !== null && calibration.q0 !== null);
   if (!hasAim) {
+    previewTarget = null;
     crosshair.dataset.hasTarget = 'false';
     crosshair.dataset.onscreen = 'true';
     targetMarker.hidden = true;
@@ -354,6 +378,7 @@ function updateCrosshair() {
   crosshair.dataset.onscreen = String(projection.onScreen);
 
   const target = computePreviewTarget();
+  previewTarget = target;
   crosshair.dataset.hasTarget = String(target !== null);
   if (target && physics) {
     const toTarget = directionTo(physics.getPlayerPosition(), target.point);
@@ -553,6 +578,54 @@ function updateHud() {
   if (warning) hudStallLeft.textContent = progress.stallSecondsLeft.toFixed(1);
 }
 
+// 화면 위 발사 상태 표시. '부착됨'은 실제 물리 부착에서만 켜서 빗나감 연출과 혼동하지 않게 한다.
+const WEB_STATUS_MESSAGES = {
+  firing: '발사 중',
+  attached: '부착됨',
+  missed: '빗나감',
+} as const;
+
+// 조준각은 실제 발사에 쓰는 방향에서 그대로 되돌려 계산하므로 표시와 발사가 어긋나지 않는다.
+// 표적·거미줄·부착 항목은 playing 동안만 갱신해 종료 화면에 마지막 발사 결과가 남는다.
+function updateDiagnostics() {
+  const [dx, dy, dz] = currentAimDirection;
+  const yawDeg = (Math.atan2(dx, -dz) * 180) / Math.PI;
+  const pitchDeg = (Math.asin(Math.max(-1, Math.min(1, dy))) * 180) / Math.PI;
+  diagAim.textContent = `좌우 ${yawDeg.toFixed(1)}° / 상하 ${pitchDeg.toFixed(1)}°`;
+
+  const state =
+    phase !== 'playing' || !swing
+      ? null
+      : physics?.isAttached
+        ? 'attached'
+        : swing.phase === 'firing'
+          ? 'firing'
+          : swing.phase === 'releasedRequired'
+            ? 'missed'
+            : null;
+  hudWebStatus.hidden = state === null;
+  if (state !== null) {
+    hudWebStatus.dataset.state = state;
+    hudWebStatus.textContent = WEB_STATUS_MESSAGES[state];
+  }
+
+  if (phase !== 'playing' || !swing) return;
+  // 발사 직전(idle)의 표적 유무를 남겨, 눌렀을 때 표적이 있었는지 사후에 확인할 수 있게 한다.
+  if (swing.phase === 'idle') {
+    diagTarget.textContent = previewTarget
+      ? `있음 (${previewTarget.distance.toFixed(1)}m)`
+      : '없음';
+  }
+  diagWebPhase.textContent = swing.phase;
+  diagWebFailure.textContent = swing.lastFailure
+    ? FIRE_FAILURE_MESSAGES[swing.lastFailure]
+    : '없음';
+  const attachment = physics?.attachment ?? null;
+  diagAttach.textContent = attachment
+    ? `부착 (줄 ${attachment.length.toFixed(1)}m / 앵커까지 ${attachment.distance.toFixed(1)}m)`
+    : '없음';
+}
+
 function frameLoop(nowMs: number) {
   requestAnimationFrame(frameLoop);
   if (lastFrameAt === null) lastFrameAt = nowMs;
@@ -585,6 +658,7 @@ function frameLoop(nowMs: number) {
   }
 
   updateHud();
+  updateDiagnostics();
 
   if (physics) {
     const alpha =

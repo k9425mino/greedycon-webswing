@@ -160,8 +160,8 @@ const signMaterials = SIGN_WORDS.map((word) => {
 const playerGeometry = new THREE.SphereGeometry(gameConfig.physics.playerRadius, 16, 12);
 const playerMaterial = new THREE.MeshStandardMaterial({ color: 0xf92672 });
 // 밝은 하늘·건물 배경에서도 뚜렷하게 보이도록 채도 높은 진한 색을 쓴다.
-const ropeMaterial = new THREE.LineBasicMaterial({ color: 0xd7263d });
-const fireBeamMaterial = new THREE.LineBasicMaterial({ color: 0xffe066, transparent: true });
+const ropeMaterial = new THREE.LineBasicMaterial({ color: 0xffffff });
+const fireBeamMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true });
 const attachFlashGeometry = new THREE.RingGeometry(0.3, 0.6, 24);
 const attachFlashMaterial = new THREE.MeshBasicMaterial({
   color: 0xa6e22e,
