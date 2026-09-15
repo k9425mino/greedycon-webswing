@@ -202,6 +202,25 @@ describe('부착 중 전방 보조와 당김', () => {
     }
   });
 
+  it('높은 부착점에 걸면 0.5초 안에 실제로 올라간다', async () => {
+    // 낙하 지연이 아니라 상승인지 본다. 충돌·페이드가 끼어들지 않는 먼 부착점이다.
+    const physics = await run(true, 30, [12, 42, -40]);
+    const [, y] = physics.getPlayerPosition();
+    const vy = physics.getPlayerVelocity()[1];
+    physics.dispose();
+
+    expect(y).toBeGreaterThan(START[1] + 1);
+    expect(vy).toBeGreaterThan(0);
+  });
+
+  it('부착 직후 0.5초 안에 전진 속도가 뚜렷하게 오른다', async () => {
+    const physics = await run(true, 30, [12, 42, -40]);
+    const forwardSpeed = -physics.getPlayerVelocity()[2];
+    physics.dispose();
+
+    expect(forwardSpeed).toBeGreaterThan(gameConfig.physics.forwardSpeed + 8);
+  });
+
   it('부착하면 자유낙하와 궤적이 달라진다', async () => {
     const steps = 120; // 2초. 자유낙하라면 이미 바닥 높이를 지난다.
     const attached = await run(true, steps);

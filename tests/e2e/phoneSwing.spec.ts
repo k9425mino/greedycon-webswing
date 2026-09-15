@@ -206,11 +206,10 @@ test('폰 입력: 보정·조준·터치 유지가 실제 물리 부착과 스�
     // 실제로 전방(-Z)으로 이동하고, 전진 속도가 시작 속도보다 빨라진다.
     expect(Math.min(...zs)).toBeLessThan(attached.position![2] - 3);
     expect(-samples.at(-1)!.velocity![2]).toBeGreaterThan(gameConfig.physics.forwardSpeed);
-    // 위쪽 부착점의 당김이 걸려, 표본 구간의 평균 하강 가속도가 중력보다 뚜렷이 작다.
-    const elapsedSec = (samples.at(-1)!.atMs - samples[0]!.atMs) / 1000;
-    const fallAccel = (samples.at(-1)!.velocity![1] - samples[0]!.velocity![1]) / elapsedSec;
-    expect(fallAccel).toBeGreaterThan(-gameConfig.physics.gravity * 0.8);
-    expect(samples[0]!.position![1]).toBeLessThanOrEqual(startY);
+    // 위쪽 부착점의 당김이 중력을 이겨, 낙하가 느려지는 데 그치지 않고 실제로 올라간다.
+    expect(attached.attachment!.point[1]).toBeGreaterThan(startY);
+    expect(samples.at(-1)!.position![1]).toBeGreaterThan(startY + 1);
+    expect(samples.at(-1)!.velocity![1]).toBeGreaterThan(0);
 
     // 손을 떼면 줄을 놓는다.
     await controllerPage.mouse.up();

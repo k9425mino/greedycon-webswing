@@ -32,12 +32,13 @@ export const gameConfig = {
     forwardSpeed: 14,
     // 부착 중 보조 (체감 미검증 제안 초기값). 부착점 중심의 진자가 아니라 도로 전방(-Z) 추진과
     // 부착점 방향의 약한 당김을 매 step 가속도로 더한다.
-    assistForwardTargetSpeed: 18,
-    assistForwardAccel: 8,
+    // 18/8/24(2026-09-15 자동 테스트 측정값)로는 부착 직후 가속이 밋밋하고 높은 곳에 걸어도
+    // 낙하가 느려지기만 했다. 전진 목표·가속과 상하 당김을 올려 실제로 솟아오르게 한다.
+    // 아래 값은 2026-09-16 자동 테스트로 고른 제안값이고 실기기 체감 검증은 아직이다.
+    assistForwardTargetSpeed: 30,
+    assistForwardAccel: 24,
     assistLateralAccel: 4,
-    // 14(제안 초기값)로는 먼 부착점에서 위 성분이 7m/s²뿐이라 중력을 못 이기고 계속 가라앉았다.
-    // 자동 테스트 측정(2026-09-15)으로 24를 골랐다. 실기기 체감 검증은 아직이다.
-    assistVerticalAccel: 24,
+    assistVerticalAccel: 48,
     // 부착점까지 남은 전방 거리가 이 값 아래면 보조를 선형으로 줄인다.
     assistFadeDistanceM: 5,
     buildingRestitution: 0.2,
