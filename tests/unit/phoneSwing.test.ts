@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { gameConfig } from '@shared/config';
-import { forwardSwingBoost, PhysicsWorld, type Vec3 } from '../../client/host/physics';
+import { PhysicsWorld, type Vec3 } from '../../client/host/physics';
 import { ChunkedWorld } from '../../client/host/world';
 import { defaultSwingOptions, selectTarget, WebSwing } from '../../client/host/web';
 import { aimAnglesFromOrientation, anglesToDirection, clampAimAngles } from '../../client/host/aim';
 import { applyScreenOrientation, orientationToQuaternion } from '../../client/controller/sensor';
 
-// 폰 자세부터 실제 Rapier 스윙까지를 한 번에 고정한다. 조준각·표적 선택·부착은 제품 함수를 그대로 쓰고,
-// main.ts의 프레임 루프에 해당하는 부분(부착 시 1회 보조 당김)만 여기서 재현한다.
+// 폰 자세부터 실제 Rapier 스윙까지를 한 번에 고정한다. 조준각·표적 선택·부착·보조는 모두 제품
+// 코드를 그대로 쓰고, main.ts의 프레임 루프에 해당하는 호출 순서만 여기서 재현한다.
 
 const FORWARD = applyScreenOrientation(orientationToQuaternion(0, 0, 0), 0);
 
@@ -33,23 +33,21 @@ async function createRun() {
 }
 
 describe('폰 조준으로 시작하는 실제 스윙', () => {
-  it('높은 표적에 부착하면 줄이 팽팽해지고 하강 후 다시 올라온다', async () => {
+  it('높은 표적에 부착하면 보조를 받는 동안 전방으로 나아가고 고도를 잃지 않는다', async () => {
     const { physics, swing } = await createRun();
     // 팔 오른쪽 30도, 손목 위 30도.
     const direction = aimDirectionFor(-30, 30);
 
     const dt = gameConfig.physics.fixedTimestepSec;
-    const samples: { y: number; slack: number; ropeLength: number }[] = [];
+    const samples: { y: number; z: number; forwardSpeed: number }[] = [];
     let attachedAt: number | null = null;
 
+    // 보조가 끝날 때까지(부착점을 지날 때까지) 관찰한다. 그 뒤로는 자유낙하라 바닥에 닿는다.
     for (let step = 0; step < 180; step++) {
       const origin = physics.getPlayerPosition();
       swing.update(true, step * dt, origin, direction, {
         onAttach: (target) => {
-          physics.attach(target.point, target.distance);
-          physics.applyVelocityDelta(
-            forwardSwingBoost(origin, target.point, gameConfig.physics.attachSwingBoostSpeed),
-          );
+          physics.attach(target.point);
           attachedAt = step;
         },
         onRelease: () => physics.detach(),
@@ -57,50 +55,33 @@ describe('폰 조준으로 시작하는 실제 스윙', () => {
       physics.step();
       expect(physics.didTouchGroundThisStep()).toBe(false);
       const attachment = physics.attachment;
-      if (attachment) {
-        samples.push({
-          y: physics.getPlayerPosition()[1],
-          slack: attachment.distance - attachment.length,
-          ropeLength: attachment.length,
-        });
+      if (!attachment?.assisting) {
+        if (attachedAt !== null) break;
+        continue;
       }
+      const [, y, z] = physics.getPlayerPosition();
+      samples.push({ y, z, forwardSpeed: -physics.getPlayerVelocity()[2] });
     }
 
     expect(attachedAt).not.toBeNull();
-    expect(physics.isAttached).toBe(true);
-    // 앵커 거리가 고정 줄 길이에서 양쪽 모두 0.1m 넘게 벗어나지 않는다.
-    expect(Math.max(...samples.map((sample) => Math.abs(sample.slack)))).toBeLessThanOrEqual(0.1);
-    // 부착 직후 0.6m만 당기고, 그 뒤로는 길이가 고정된다.
-    const ropeLengths = samples.map((sample) => sample.ropeLength);
-    // 첫 표본은 이미 한 스텝 당겨진 뒤 값이라 그만큼 뺀다.
-    const pullPerStep = gameConfig.physics.attachPullSpeed * gameConfig.physics.fixedTimestepSec;
-    expect(ropeLengths[0]! - ropeLengths.at(-1)!).toBeCloseTo(
-      gameConfig.physics.attachPullDistanceM - pullPerStep,
-      6,
+    expect(samples.length).toBeGreaterThan(30);
+    // 전방(-Z)으로 계속 나아가고, 전진 속도가 시작 속도보다 빨라진다.
+    expect(samples.at(-1)!.z).toBeLessThan(samples[0]!.z - 10);
+    expect(samples.at(-1)!.forwardSpeed).toBeGreaterThan(gameConfig.physics.forwardSpeed);
+    expect(Math.max(...samples.map((sample) => sample.forwardSpeed))).toBeLessThanOrEqual(
+      gameConfig.physics.assistForwardTargetSpeed + 1e-6,
     );
-    const afterPull = ropeLengths.slice(20);
-    expect(Math.max(...afterPull) - Math.min(...afterPull)).toBeLessThan(1e-6);
-
-    // 하강했다가 다시 올라오는 구간이 있어야 자유낙하가 아니라 스윙이다.
+    // 위쪽 벽면에 걸었으므로 보조를 받는 동안에는 크게 떨어지지 않는다.
     const ys = samples.map((sample) => sample.y);
-    const lowest = Math.min(...ys);
-    expect(lowest).toBeLessThan(ys[0]! - 5);
-    expect(Math.max(...ys.slice(ys.lastIndexOf(lowest)))).toBeGreaterThan(lowest + 0.5);
+    expect(Math.min(...ys)).toBeGreaterThan(ys[0]! - 5);
 
     physics.dispose();
   });
 
-  it('낮은 앵커에 걸면 스윙해도 바닥에 닿는다', async () => {
+  it('낮은 앵커에 걸면 아래로 당겨져 바닥에 닿는다', async () => {
     const { physics } = await createRun();
     // 낮은 벽면도 조준한 그대로 부착된다. 부착이 추락을 막아 주지는 않는다.
-    const anchor: Vec3 = [12, 3, -20];
-    const origin = physics.getPlayerPosition();
-    const distance = Math.hypot(
-      anchor[0] - origin[0],
-      anchor[1] - origin[1],
-      anchor[2] - origin[2],
-    );
-    physics.attach(anchor, distance);
+    physics.attach([12, 3, -20]);
 
     let touched = false;
     for (let step = 0; step < 600 && !touched; step++) {

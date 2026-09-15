@@ -13,27 +13,6 @@ export function isOutsideRoad(position: Vec3, roadWidth: number, playerRadius: n
   return Math.abs(position[0]) + playerRadius > roadWidth / 2 && position[1] <= 0;
 }
 
-export function forwardSwingBoost(origin: Vec3, anchor: Vec3, speed: number): Vec3 {
-  const dx = anchor[0] - origin[0];
-  const dy = anchor[1] - origin[1];
-  const dz = anchor[2] - origin[2];
-  const length = Math.hypot(dx, dy, dz);
-  if (length === 0) return [0, 0, 0];
-
-  const axis: Vec3 = [dx / length, dy / length, dz / length];
-  const forward: Vec3 = [0, 0, -1];
-  const projected = forward[0] * axis[0] + forward[1] * axis[1] + forward[2] * axis[2];
-  const tangent: Vec3 = [
-    forward[0] - projected * axis[0],
-    forward[1] - projected * axis[1],
-    forward[2] - projected * axis[2],
-  ];
-  // 접선 길이는 전방과 줄 축이 이루는 각의 sin이다. 정규화하면 줄이 전방에 가까울 때
-  // (멀리 있는 정면 표적) 거의 0인 접선이 그대로 최대 속도가 되어 옆·아래로 튄다.
-  // 길이를 그대로 곱해 줄이 전방과 수직일 때 speed가 최대가 되게 한다.
-  return [tangent[0] * speed, tangent[1] * speed, tangent[2] * speed];
-}
-
 const IDENTITY_ROTATION = { x: 0, y: 0, z: 0, w: 1 };
 
 let rapierInitialized = false;
@@ -52,13 +31,12 @@ export class PhysicsWorld implements TargetQuery {
   private groundColliderHandles = new Set<number>();
   private buildingColliderHandles = new Set<number>();
   private chunkBodies = new Map<number, RAPIER.RigidBody[]>();
-  // 앵커는 좌표 데이터일 뿐이다. rope joint는 최대 거리만 제한해, 표적이 앞쪽에 있고 플레이어가
-  // 그쪽으로 날아가는 이 게임에서는 부착 후 거리가 줄어들어 끝까지 느슨했다(힘이 전혀 안 걸렸다).
-  // 길이는 부착 순간 거리에서 짧게 한 번 감은 뒤 고정하고, 양방향으로 구속한다(고정 길이 진자).
+  // 앵커는 좌표 데이터일 뿐이다. 줄 길이를 구속하지 않고(고정 길이 진자가 아니다), 부착 중에는
+  // 도로 전방 추진과 부착점 방향의 약한 당김만 더한다. assisting은 부착점을 지나가면 꺼지고
+  // 다시 켜지지 않는다(해제 전까지 줄은 그대로 보이지만 보조는 끝난다).
   private anchor: {
     point: Vec3;
-    length: number;
-    targetLength: number;
+    assisting: boolean;
   } | null = null;
 
   private prevPosition: Vec3 = [0, 0, 0];
@@ -167,48 +145,50 @@ export class PhysicsWorld implements TargetQuery {
     return [v.x, v.y, v.z];
   }
 
-  // 줄의 양방향 구속. 감기 중에는 안쪽 속도를 만들고, 완료 후에는 반경 방향 속도를 구속한다.
-  // 한 스텝 적분으로 벌어진 길이 오차는 위치를 옮기지 않고(보간이 튀고 건물을 관통한다)
-  // 다음 스텝에서 되돌릴 반경 방향 속도로만 보정한다.
-  private applyRopeConstraint(dt: number): void {
+  // 부착 중 보조. 부착점을 중심으로 도는 진자 대신 도로 전방(-Z)으로 나아가게 하고, 부착점
+  // 방향으로 약하게 당긴다(조준 높이가 상하 궤적에 남는다). 속도만 더하므로 중력·충돌은 그대로다.
+  private applySwingAssist(dt: number): void {
     const anchor = this.anchor;
-    if (!anchor) return;
-
-    // 부착 직후의 짧은 당김. 줄 길이를 목표까지 일정 속도로 줄이면, 아래의 양방향 구속이
-    // 그대로 안쪽 속도를 만들어 첫 스텝부터 당긴다(위치는 옮기지 않는다).
-    // 아래 오차는 이미 줄인 길이로 계산하므로 감기 속도를 별도로 더하면 당김이 중복된다.
-    if (anchor.length > anchor.targetLength) {
-      anchor.length = Math.max(
-        anchor.targetLength,
-        anchor.length - gameConfig.physics.attachPullSpeed * dt,
-      );
-    }
+    if (!anchor || !anchor.assisting) return;
 
     const [px, py, pz] = this.getPlayerPosition();
-    const dx = px - anchor.point[0];
-    const dy = py - anchor.point[1];
-    const dz = pz - anchor.point[2];
+    // 부착점의 Z에 도달하면 이 부착의 보조는 끝난다. 뒤로 밀려도 다시 켜지 않는다.
+    const forwardRemaining = pz - anchor.point[2];
+    if (forwardRemaining <= 0) {
+      anchor.assisting = false;
+      return;
+    }
+    const fade = Math.min(1, forwardRemaining / gameConfig.physics.assistFadeDistanceM);
+
+    const velocity = this.getPlayerVelocity();
+    // 전방 보조는 목표 속도까지만 채운다. 이미 빠르면 감속시키지 않는다.
+    const forwardSpeed = -velocity[2];
+    const forwardGain = Math.max(
+      0,
+      Math.min(
+        gameConfig.physics.assistForwardAccel * fade * dt,
+        gameConfig.physics.assistForwardTargetSpeed - forwardSpeed,
+      ),
+    );
+
+    const dx = anchor.point[0] - px;
+    const dy = anchor.point[1] - py;
+    const dz = anchor.point[2] - pz;
     const distance = Math.hypot(dx, dy, dz);
     if (distance < 1e-6) return;
 
-    const nx = dx / distance;
-    const ny = dy / distance;
-    const nz = dz / distance;
-    const v = this.getPlayerVelocity();
-    const outward = v[0] * nx + v[1] * ny + v[2] * nz;
-
-    // 오차를 한 스텝에 되돌리는 속도. 충돌로 크게 벌어졌을 때 튀어나가지 않도록 상한을 둔다.
-    const limit = gameConfig.physics.ropeCorrectionSpeed;
-    const correction = Math.max(-limit, Math.min(limit, (anchor.length - distance) / dt));
-    const delta = outward - correction;
-    this.setPlayerVelocity([v[0] - nx * delta, v[1] - ny * delta, v[2] - nz * delta]);
+    this.applyVelocityDelta([
+      (dx / distance) * gameConfig.physics.assistLateralAccel * fade * dt,
+      (dy / distance) * gameConfig.physics.assistVerticalAccel * fade * dt,
+      -forwardGain,
+    ]);
   }
 
   // 고정 60Hz accumulator가 호출하는 한 스텝. ARCHITECTURE 5절: 렌더링은 직전·현재 상태를 보간한다.
   step(): void {
     this.prevPosition = this.currPosition;
-    // 적분 전에 구속해야 Rapier가 구속된 속도로 한 스텝을 밟는다.
-    this.applyRopeConstraint(this.world.timestep);
+    // 적분 전에 더해야 Rapier가 보조를 반영한 속도로 한 스텝을 밟는다.
+    this.applySwingAssist(this.world.timestep);
     this.world.step(this.eventQueue);
     this.currPosition = this.getPlayerPosition();
 
@@ -242,11 +222,9 @@ export class PhysicsWorld implements TargetQuery {
     ];
   }
 
-  // length는 부착 순간의 앵커까지 거리다. 여기서 attachPullDistanceM만큼 짧아질 때까지 한 번
-  // 감기고(부착당 한 번), 그 뒤로는 해제까지 고정 줄 길이가 된다.
-  attach(point: Vec3, length: number): void {
-    const targetLength = Math.max(0, length - gameConfig.physics.attachPullDistanceM);
-    this.anchor = { point, length, targetLength };
+  // 부착점은 실제 맞은 지점 그대로다. 줄 길이는 저장하지 않는다(표시 길이는 플레이어 위치에 따라 변한다).
+  attach(point: Vec3): void {
+    this.anchor = { point, assisting: true };
   }
 
   // 속도를 다시 설정하지 않는다(PRD PH-05: 해제 시 속도 보존).
@@ -259,14 +237,14 @@ export class PhysicsWorld implements TargetQuery {
   }
 
   // 진단용 읽기 전용 부착 정보. Rapier 객체는 노출하지 않는다.
-  get attachment(): { point: Vec3; length: number; distance: number } | null {
+  get attachment(): { point: Vec3; distance: number; assisting: boolean } | null {
     if (!this.anchor) return null;
     const [px, py, pz] = this.getPlayerPosition();
     const [ax, ay, az] = this.anchor.point;
     return {
       point: this.anchor.point,
-      length: this.anchor.length,
       distance: Math.hypot(px - ax, py - ay, pz - az),
+      assisting: this.anchor.assisting,
     };
   }
 

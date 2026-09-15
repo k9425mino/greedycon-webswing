@@ -30,14 +30,16 @@ export const gameConfig = {
     playerRadius: 0.4,
     startHeight: 18,
     forwardSpeed: 14,
-    attachSwingBoostSpeed: 2,
-    // 줄 구속 (rope joint 대체). 부착 순간 거리를 고정 길이로 잡고 양방향으로 구속한다.
-    // 길이 오차를 되돌릴 때 쓰는 반경 방향 속도의 상한이다.
-    ropeCorrectionSpeed: 8,
-    // 부착 직후 짧은 당김. 줄의 목표 길이를 부착 거리보다 이만큼 짧게 잡고 아래 속도로 감는다.
-    // 감기가 끝나면 그 길이로 고정된다(부착당 한 번).
-    attachPullDistanceM: 0.6,
-    attachPullSpeed: 3,
+    // 부착 중 보조 (체감 미검증 제안 초기값). 부착점 중심의 진자가 아니라 도로 전방(-Z) 추진과
+    // 부착점 방향의 약한 당김을 매 step 가속도로 더한다.
+    assistForwardTargetSpeed: 18,
+    assistForwardAccel: 8,
+    assistLateralAccel: 4,
+    // 14(제안 초기값)로는 먼 부착점에서 위 성분이 7m/s²뿐이라 중력을 못 이기고 계속 가라앉았다.
+    // 자동 테스트 측정(2026-09-15)으로 24를 골랐다. 실기기 체감 검증은 아직이다.
+    assistVerticalAccel: 24,
+    // 부착점까지 남은 전방 거리가 이 값 아래면 보조를 선형으로 줄인다.
+    assistFadeDistanceM: 5,
     buildingRestitution: 0.2,
     buildingFriction: 0.1,
   },

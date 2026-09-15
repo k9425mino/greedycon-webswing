@@ -70,6 +70,7 @@ test('마우스 플레이: 건물을 겨눠 부착하면 거미줄이 표시된�
 
   await page.locator('#btn-start').click();
   await expect(page.locator('#status-phase')).toHaveText('playing');
+  const startedAt = Date.now();
 
   const canvas = page.locator('#scene');
   const box = await canvas.boundingBox();
@@ -83,9 +84,10 @@ test('마우스 플레이: 건물을 겨눠 부착하면 거미줄이 표시된�
   const pressed = await page.locator('#crosshair').getAttribute('data-pressed');
   expect(pressed).toBe('true');
 
-  // 자유낙하라면 약 1.9초 안에 바닥에 닿아 종료된다. 부착에 성공했다면 그보다 오래 살아남는다.
-  await page.waitForTimeout(2800);
-  await expect(page.locator('#status-phase')).toHaveText('playing');
+  // 부착 보조는 부착점을 지나면 끝나므로 계속 누르고 있어도 결국 추락한다. 살아 있는 시간으로
+  // 부착 효과를 본다. 시작 높이 18m에서 자유낙하라면 약 1.9초에 끝난다.
+  await expect(page.locator('#status-phase')).toHaveText('gameOver', { timeout: 15_000 });
+  expect(Date.now() - startedAt).toBeGreaterThan(2400);
 
   await page.mouse.up();
 });
@@ -97,6 +99,7 @@ test('마우스 플레이: 조준점이 마우스 위치를 따라가고 표적�
   await expect(page.locator('#status-physics')).toHaveText('준비됨', { timeout: 15_000 });
   await page.locator('#btn-start').click();
   await expect(page.locator('#status-phase')).toHaveText('playing');
+  const startedAt = Date.now();
 
   const canvas = page.locator('#scene');
   const box = await canvas.boundingBox();

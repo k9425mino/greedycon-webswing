@@ -38,7 +38,7 @@ import {
   updateRopeLine,
 } from './scene';
 import { isMouseInputEnabled, MouseAimInput } from './mouseInput';
-import { forwardSwingBoost, PhysicsWorld, type Vec3 } from './physics';
+import { PhysicsWorld, type Vec3 } from './physics';
 import { ChunkedWorld, chunkIndexForZ } from './world';
 import { Progress } from './progress';
 import {
@@ -533,10 +533,7 @@ function stepPhysicsFixed(nowSec: number) {
     },
     onAttach: (target) => {
       if (!physics) return;
-      physics.attach(target.point, target.distance);
-      physics.applyVelocityDelta(
-        forwardSwingBoost(origin, target.point, gameConfig.physics.attachSwingBoostSpeed),
-      );
+      physics.attach(target.point);
       attachedPoint = target.point;
       sfx.playAttach();
       showAttachFlashAt(attachFlash, target.point);
@@ -612,7 +609,7 @@ function updateDiagnostics() {
     : '없음';
   const attachment = physics?.attachment ?? null;
   diagAttach.textContent = attachment
-    ? `부착 (줄 ${attachment.length.toFixed(1)}m / 앵커까지 ${attachment.distance.toFixed(1)}m)`
+    ? `부착 (앵커까지 ${attachment.distance.toFixed(1)}m / 보조 ${attachment.assisting ? '중' : '종료'})`
     : '없음';
 }
 

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { gameConfig } from '@shared/config';
 
 // 폰에서 노트북까지의 실제 경로를 확인한다. 모의하는 것은 deviceorientation 이벤트뿐이고
 // 터치 처리·전송·보정·표적 선택·물리는 모두 제품 코드를 그대로 지난다.
@@ -9,7 +10,7 @@ type SwingState = {
   phase: string;
   swingPhase: string | null;
   failure: string | null;
-  attachment: { point: [number, number, number]; length: number; distance: number } | null;
+  attachment: { point: [number, number, number]; distance: number; assisting: boolean } | null;
   position: [number, number, number] | null;
   velocity: [number, number, number] | null;
   // 화면에 그려지는 부착 줄. 카메라에서 본 두 끝점의 시선 각도가 0이면 한 점으로 겹쳐 보인다.
@@ -184,32 +185,32 @@ test('폰 입력: 보정·조준·터치 유지가 실제 물리 부착과 스�
       expect(attached.rope.endpoint[axis]!).toBeCloseTo(attached.attachment!.point[axis]!, 3);
     }
 
-    // 3초 동안 매달린 채 유지되는지 확인한다. playing인지만 보지 않고 위치·앵커 거리를 함께 기록한다.
-    const samples: SwingState[] = [];
-    for (let i = 0; i < 12; i++) {
-      await hostPage.waitForTimeout(250);
-      samples.push(await readSwingState(hostPage));
+    // 부착 보조를 받는 동안 전방으로 나아가는지 확인한다. 보조는 부착점을 지나면 끝나고
+    // 그 뒤로는 자유낙하라 곧 추락으로 끝나므로, 보조 구간 안에서 짧게 표본을 모은다.
+    const samples: (SwingState & { atMs: number })[] = [];
+    for (let i = 0; i < 5; i++) {
+      await hostPage.waitForTimeout(100);
+      samples.push({ ...(await readSwingState(hostPage)), atMs: Date.now() });
     }
     for (const sample of samples) {
       expect(sample.phase).toBe('playing');
       expect(sample.attachment).not.toBeNull();
-      // 줄 길이가 양방향으로 고정된다. 자유낙하였다면 앵커 거리가 줄 길이를 크게 넘어선다.
-      expect(Math.abs(sample.attachment!.distance - sample.attachment!.length)).toBeLessThanOrEqual(
-        0.1,
-      );
+      // 부착점은 움직이지 않는다(줄 표시 길이만 이동에 따라 변한다).
+      for (const axis of [0, 1, 2]) {
+        expect(sample.attachment!.point[axis]!).toBeCloseTo(attached.attachment!.point[axis]!, 3);
+      }
       // 누르는 동안 줄 선이 계속 갱신돼 사라지지 않는다.
       expect(sample.rope.visible).toBe(true);
     }
-    const ys = samples.map((sample) => sample.position![1]);
     const zs = samples.map((sample) => sample.position![2]);
-    // 중력으로 내려갔다가 줄에 밀려 다시 올라오는 구간이 있어야 스윙이다.
-    // 자유낙하 여부는 위의 phase 검사가 이미 거른다.
-    expect(Math.min(...ys)).toBeLessThan(startY - 1);
-    expect(Math.max(...ys.slice(ys.indexOf(Math.min(...ys))))).toBeGreaterThan(
-      Math.min(...ys) + 0.5,
-    );
-    // 실제로 전방(-Z)으로 이동한다.
-    expect(Math.min(...zs)).toBeLessThan(attached.position![2] - 5);
+    // 실제로 전방(-Z)으로 이동하고, 전진 속도가 시작 속도보다 빨라진다.
+    expect(Math.min(...zs)).toBeLessThan(attached.position![2] - 3);
+    expect(-samples.at(-1)!.velocity![2]).toBeGreaterThan(gameConfig.physics.forwardSpeed);
+    // 위쪽 부착점의 당김이 걸려, 표본 구간의 평균 하강 가속도가 중력보다 뚜렷이 작다.
+    const elapsedSec = (samples.at(-1)!.atMs - samples[0]!.atMs) / 1000;
+    const fallAccel = (samples.at(-1)!.velocity![1] - samples[0]!.velocity![1]) / elapsedSec;
+    expect(fallAccel).toBeGreaterThan(-gameConfig.physics.gravity * 0.8);
+    expect(samples[0]!.position![1]).toBeLessThanOrEqual(startY);
 
     // 손을 떼면 줄을 놓는다.
     await controllerPage.mouse.up();
