@@ -39,7 +39,7 @@ import {
 } from './scene';
 import { isMouseInputEnabled, MouseAimInput } from './mouseInput';
 import { PhysicsWorld, type Vec3 } from './physics';
-import { ChunkedWorld, chunkIndexForZ } from './world';
+import { ChunkedWorld, chunkIndexForZ, chunkBuildingColliders } from './world';
 import { Progress } from './progress';
 import {
   defaultSwingOptions,
@@ -173,7 +173,7 @@ let previewTarget: TargetHit | null = null;
 const world = new ChunkedWorld({
   onAdd: (chunk) => {
     chunkMeshes.add(chunk);
-    physics?.addChunk(chunk.index, chunk.road, chunk.buildings);
+    physics?.addChunk(chunk.index, chunk.road, chunkBuildingColliders(chunk));
   },
   onRemove: (chunkIndex) => {
     chunkMeshes.remove(chunkIndex);

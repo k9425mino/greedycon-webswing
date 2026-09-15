@@ -1,16 +1,27 @@
 import { gameConfig } from '@shared/config';
 import type { BoxSpec, Vec3 } from './physics';
+import {
+  AEJIHEON_BOUNDS,
+  DAEYANG_AI_BOUNDS,
+  landmarkColliders,
+  type LandmarkPlacement,
+} from './models/landmarkPlacement';
 
 export type Chunk = {
   index: number;
   road: BoxSpec;
   buildings: BoxSpec[];
+  landmark?: LandmarkPlacement;
 };
 
 export type ChunkCallbacks = {
   onAdd: (chunk: Chunk) => void;
   onRemove: (chunkIndex: number) => void;
 };
+
+export function chunkBuildingColliders(chunk: Chunk): BoxSpec[] {
+  return [...chunk.buildings, ...(chunk.landmark ? landmarkColliders(chunk.landmark) : [])];
+}
 
 const ROAD_THICKNESS = 1;
 
@@ -67,6 +78,36 @@ export function buildChunk(index: number): Chunk {
     }
   }
 
+  let landmark: LandmarkPlacement | undefined;
+  const occurrence =
+    (index - gameConfig.world.landmarkFirstChunk) / gameConfig.world.landmarkEveryChunks;
+  if (Number.isInteger(occurrence) && occurrence >= 0) {
+    const kind = occurrence % 2 === 0 ? 'aejiheon' : 'daeyang-ai';
+    // 두 종류 모두 좌우에서 보이도록 한 쌍마다 방향을 바꾼다.
+    const side = (occurrence + Math.floor(occurrence / 2)) % 2 === 0 ? 1 : -1;
+    const bounds = kind === 'aejiheon' ? AEJIHEON_BOUNDS : DAEYANG_AI_BOUNDS;
+    const scale = gameConfig.world.landmarkScale[kind];
+    const centerZ = (startZ + endZ) / 2 - (side * (bounds.minX + bounds.maxX) * scale) / 2;
+    landmark = {
+      position: [side * (roadWidthM / 2 + bounds.maxZ * scale), 0, centerZ],
+      side,
+      kind,
+      scale,
+    };
+    const halfDepth = ((bounds.maxX - bounds.minX) * scale) / 2;
+    const minZ = (startZ + endZ) / 2 - halfDepth - buildingGapRangeM[0];
+    const maxZ = (startZ + endZ) / 2 + halfDepth + buildingGapRangeM[0];
+    for (let i = buildings.length - 1; i >= 0; i--) {
+      const building = buildings[i]!;
+      if (
+        Math.sign(building.center[0]) === side &&
+        building.center[2] + building.halfExtents[2] > minZ &&
+        building.center[2] - building.halfExtents[2] < maxZ
+      )
+        buildings.splice(i, 1);
+    }
+  }
+
   return {
     index,
     road: {
@@ -74,6 +115,7 @@ export function buildChunk(index: number): Chunk {
       halfExtents: [roadWidthM / 2, ROAD_THICKNESS / 2, chunkLengthM / 2],
     },
     buildings,
+    ...(landmark ? { landmark } : {}),
   };
 }
 

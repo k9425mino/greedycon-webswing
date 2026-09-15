@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { gameConfig } from '../../shared/config';
-import { ChunkedWorld } from '../../client/host/world';
+import { ChunkedWorld, chunkBuildingColliders } from '../../client/host/world';
 import { PhysicsWorld } from '../../client/host/physics';
 import { createChunkMeshes } from '../../client/host/scene';
 import { defaultSwingOptions, selectTarget } from '../../client/host/web';
@@ -22,7 +22,7 @@ describe('무한 도로 스트리밍', () => {
     const world = new ChunkedWorld({
       onAdd: (chunk) => {
         chunkMeshes.add(chunk);
-        physics.addChunk(chunk.index, chunk.road, chunk.buildings);
+        physics.addChunk(chunk.index, chunk.road, chunkBuildingColliders(chunk));
       },
       onRemove: (chunkIndex) => {
         chunkMeshes.remove(chunkIndex);

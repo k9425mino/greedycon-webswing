@@ -10,6 +10,7 @@ export default defineConfig({
       input: {
         host: resolve(__dirname, 'client/index.html'),
         controller: resolve(__dirname, 'client/controller/index.html'),
+        models: resolve(__dirname, 'client/models/index.html'),
       },
     },
   },

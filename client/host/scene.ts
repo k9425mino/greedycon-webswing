@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { gameConfig } from '@shared/config';
 import type { Chunk } from './world';
 import type { BoxSpec, Vec3 } from './physics';
+import { createAejiheon } from './models/aejiheon';
+import { createDaeyangAi } from './models/daeyangAi';
 
 export function createScene(canvas: HTMLCanvasElement) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -207,12 +209,28 @@ function signMesh(building: BoxSpec, hash: number): THREE.Mesh | null {
 // 건물·간판 재질은 모듈 상수로 공유하고 폐기하지 않는다. geometry만 구간마다 폐기한다.
 export function createChunkMeshes(scene: THREE.Scene) {
   const groups = new Map<number, THREE.Group>();
+  // 랜드마크의 geometry·material·texture는 한 번 만들고 구간 간 공유한다.
+  // clone한 Group만 회수하며 공유 자원은 일반 건물 재질처럼 게임 수명 동안 유지한다.
+  const landmarkTemplates = new Map<string, THREE.Group>();
 
   return {
     add(chunk: Chunk): void {
       if (groups.has(chunk.index)) return;
       const group = new THREE.Group();
       group.add(boxMesh(chunk.road, roadMaterial));
+      if (chunk.landmark) {
+        const kind = chunk.landmark.kind;
+        let landmarkTemplate = landmarkTemplates.get(kind);
+        if (!landmarkTemplate) {
+          landmarkTemplate = kind === 'aejiheon' ? createAejiheon() : createDaeyangAi();
+          landmarkTemplates.set(kind, landmarkTemplate);
+        }
+        const landmark = landmarkTemplate.clone();
+        landmark.scale.setScalar(chunk.landmark.scale);
+        landmark.position.set(...chunk.landmark.position);
+        landmark.rotation.y = (-chunk.landmark.side * Math.PI) / 2;
+        group.add(landmark);
+      }
       for (const building of chunk.buildings) {
         const hash = hashFor(building);
         // buildingMaterials는 고정 팔레트에서 만든 비어 있지 않은 배열이라 모듈로 인덱스는 항상 유효하다.

@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>애지헌 · 건물 미리보기</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #e9e8e2;
+        color: #29372f;
+        font-family: system-ui, sans-serif;
+      }
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100dvh;
+        touch-action: none;
+      }
+      header {
+        position: absolute;
+        top: 36px;
+        left: 40px;
+        pointer-events: none;
+      }
+      .eyebrow {
+        font-size: 11px;
+        letter-spacing: 0.2em;
+        color: #737d70;
+      }
+      .model-links {
+        margin-top: 12px;
+        pointer-events: auto;
+        display: flex;
+        gap: 16px;
+      }
+      .model-links a {
+        color: #425f51;
+        font-size: 12px;
+        text-underline-offset: 4px;
+      }
+      h1 {
+        font-size: 34px;
+        font-weight: 500;
+        margin: 12px 0 8px;
+      }
+      p {
+        font-size: 13px;
+        line-height: 1.7;
+        margin: 0;
+      }
+      footer {
+        position: absolute;
+        bottom: 28px;
+        left: 40px;
+        right: 40px;
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 18px;
+      }
+      .note {
+        color: #697269;
+        font-size: 11px;
+        margin-top: 7px;
+      }
+      nav {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      button {
+        border: 1px solid #bbc1b7;
+        background: #f6f5ef;
+        color: #344639;
+        border-radius: 5px;
+        padding: 10px 14px;
+        cursor: pointer;
+      }
+      button:hover,
+      button[aria-pressed='true'] {
+        background: #344639;
+        color: white;
+      }
+      button:focus-visible {
+        outline: 3px solid #a88340;
+        outline-offset: 3px;
+      }
+      @media (max-width: 600px) {
+        header {
+          top: 20px;
+          left: 20px;
+        }
+        h1 {
+          font-size: 27px;
+        }
+        footer {
+          left: 20px;
+          right: 20px;
+          bottom: 20px;
+          flex-direction: column;
+          align-items: start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="eyebrow">SEJONG UNIVERSITY / LANDMARK 01</div>
+      <h1>애지헌과 대양타워</h1>
+      <p>석재의 수직선, 아치와 붉은 지붕.</p>
+      <nav class="model-links" aria-label="건물 선택">
+        <a href="/models/">애지헌·대양타워</a><a href="/models/?model=daeyang-ai">대양AI센터</a>
+      </nav>
+    </header>
+    <canvas aria-label="애지헌 예배당과 대양타워의 회전 가능한 3D 모델"></canvas>
+    <footer>
+      <div>
+        <p>드래그 회전 · 휠 확대 · 오른쪽 드래그 이동</p>
+        <p class="note">제공 사진 기반 모델 · 치수와 가려진 면은 추정</p>
+      </div>
+      <nav aria-label="모델 시점">
+        <button id="overview">전체</button><button id="front">정면</button
+        ><button id="chapel">예배당</button
+        ><button id="rotate" aria-pressed="false">자동 회전</button>
+      </nav>
+    </footer>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

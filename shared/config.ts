@@ -75,6 +75,12 @@ export const gameConfig = {
     buildingGapRangeM: [2, 6],
     startPositionZ: 0,
     seed: 20260917,
+    // 랜드마크 배치 제안값: 첫 120m 이후 약 240m 간격으로 좌우 교대.
+    landmarkEveryChunks: 4,
+    landmarkFirstChunk: 2,
+    // 종류별 확대 배율. 애지헌 탑이 주변 건물(45~70m)에 묻혀 작아 보여 더 키웠다.
+    // 대양AI센터는 바닥 폭이 48m라 구간 길이 60m를 넘지 않는 1.25가 상한이다.
+    landmarkScale: { aejiheon: 1.6, 'daeyang-ai': 1.25 },
   },
 
   // 점수·정체 (PRD 5절 제안 초기값)
