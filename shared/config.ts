@@ -47,7 +47,8 @@ export const gameConfig = {
 
   // 발사·표적 (ARCHITECTURE 5절 제안 초기값)
   web: {
-    fireEffectSec: 0.1,
+    // 버튼을 누르는 동안 줄 끝이 뻗어나가는 속도. 최대 사거리 70m까지 약 0.58초.
+    travelSpeedMps: 120,
     minFireDistance: 3,
     maxFireDistance: 70,
     // 조준 보정: 조준 방향으로 이 반지름의 구체를 쓸어 벽면 접촉점을 찾는다(후보점 배열 대체).
@@ -66,6 +67,9 @@ export const gameConfig = {
   // 무한 도로 구간 (ARCHITECTURE 5절 제안 초기값, 측정 전 시작점)
   world: {
     roadWidthM: 24,
+    // 도로 양옆을 채우는 보도 바닥의 한쪽 폭. 건물 사이 틈과 먼 지평선까지 공허가 보이지 않을
+    // 만큼 넓게 둔다(카메라 far=500). 충돌에는 쓰지 않는 순수 시각 요소다.
+    sidewalkWidthM: 300,
     chunkLengthM: 60,
     chunksAhead: 4,
     chunksBehind: 2,
@@ -80,7 +84,9 @@ export const gameConfig = {
     landmarkFirstChunk: 2,
     // 종류별 확대 배율. 애지헌 탑이 주변 건물(45~70m)에 묻혀 작아 보여 더 키웠다.
     // 대양AI센터는 바닥 폭이 48m라 구간 길이 60m를 넘지 않는 1.25가 상한이다.
-    landmarkScale: { aejiheon: 1.6, 'daeyang-ai': 1.25 },
+    // 광개토관도 도로를 따라가는 폭이 48m라 상한이 1.25다. 높이 62m가 이미 주변 건물보다
+    // 높아 배율은 1.2로 둔다.
+    landmarkScale: { aejiheon: 1.6, 'daeyang-ai': 1.25, gwanggaeto: 1.2 },
   },
 
   // 점수·정체 (PRD 5절 제안 초기값)

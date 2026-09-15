@@ -36,7 +36,9 @@ it('드문 간격으로 좌우를 교대하고 탑 정면은 항상 도로를 �
     indices.push(index);
     expect(chunk).toEqual(buildChunk(index));
     const { side, position } = chunk.landmark;
-    expect(chunk.landmark.kind).toBe(indices.length % 2 ? 'aejiheon' : 'daeyang-ai');
+    expect(chunk.landmark.kind).toBe(
+      ['aejiheon', 'daeyang-ai', 'gwanggaeto'][(indices.length - 1) % 3],
+    );
     const front = new THREE.Vector3(0, 0, 1).applyAxisAngle(
       new THREE.Vector3(0, 1, 0),
       (-side * Math.PI) / 2,

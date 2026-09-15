@@ -4,6 +4,7 @@ import type { Chunk } from './world';
 import type { BoxSpec, Vec3 } from './physics';
 import { createAejiheon } from './models/aejiheon';
 import { createDaeyangAi } from './models/daeyangAi';
+import { createGwanggaeto } from './models/gwanggaeto';
 
 export function createScene(canvas: HTMLCanvasElement) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -119,6 +120,27 @@ function createRoadTexture(chunkLengthM: number): THREE.Texture | null {
   return texture;
 }
 
+// 보도 바닥 텍스처. 도로 밖 공허를 채우는 판 하나에 2m 보도블록 격자가 반복되도록 쓴다.
+function createPavementTexture(): THREE.Texture | null {
+  const ctx = tryCreateCanvas(64, 64);
+  if (!ctx) return null;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, 64, 64);
+  ctx.strokeStyle = '#cfcabf';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(1.5, 1.5, 61, 61);
+  ctx.beginPath();
+  ctx.moveTo(32, 0);
+  ctx.lineTo(32, 64);
+  ctx.moveTo(0, 32);
+  ctx.lineTo(64, 32);
+  ctx.stroke();
+  const texture = new THREE.CanvasTexture(ctx.canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+}
+
 const SIGN_WORDS = ['분식', '노래방', '문구점', 'PC방', '세탁소', '편의점', '떡볶이', '옷수선'];
 
 function createSignTexture(text: string): THREE.Texture | null {
@@ -153,6 +175,13 @@ const roadMaterial = new THREE.MeshStandardMaterial({
   color: 0x4d4d57,
   ...(roadTexture ? { map: roadTexture } : {}),
 });
+// 보도 판은 구간 하나를 통째로 덮는 넓은 박스라 텍스처 반복도 구간 크기에 맞춰 한 번만 정한다.
+const pavementTexture = createPavementTexture();
+pavementTexture?.repeat.set(gameConfig.world.sidewalkWidthM / 2, gameConfig.world.chunkLengthM / 2);
+const pavementMaterial = new THREE.MeshStandardMaterial({
+  color: 0xd8d3c8,
+  ...(pavementTexture ? { map: pavementTexture } : {}),
+});
 const signMaterials = SIGN_WORDS.map((word) => {
   const texture = createSignTexture(word);
   return texture ? new THREE.MeshBasicMaterial({ map: texture }) : null;
@@ -170,6 +199,12 @@ const attachFlashMaterial = new THREE.MeshBasicMaterial({
   depthWrite: false,
   side: THREE.DoubleSide,
 });
+
+const LANDMARK_FACTORIES = {
+  aejiheon: createAejiheon,
+  'daeyang-ai': createDaeyangAi,
+  gwanggaeto: createGwanggaeto,
+};
 
 function boxMesh(spec: BoxSpec, material: THREE.Material): THREE.Mesh {
   const [w, h, d] = spec.halfExtents;
@@ -205,6 +240,16 @@ function signMesh(building: BoxSpec, hash: number): THREE.Mesh | null {
   return mesh;
 }
 
+// 도로 밖이 공허로 보이지 않도록 구간마다 좌우 보도 바닥을 깐다. 윗면 높이와 두께를 도로와
+// 맞춰 도로 박스와 겹치지 않게 하고, 충돌체로는 쓰지 않는다(추락 판정은 기존 도로 폭 그대로다).
+function sidewalkSpecs(road: BoxSpec): BoxSpec[] {
+  const halfWidth = gameConfig.world.sidewalkWidthM / 2;
+  return [-1, 1].map((side) => ({
+    center: [side * (road.halfExtents[0] + halfWidth), road.center[1], road.center[2]] as Vec3,
+    halfExtents: [halfWidth, road.halfExtents[1], road.halfExtents[2]] as Vec3,
+  }));
+}
+
 // 구간 mesh는 Group 하나로 묶어 회수 시 통째로 제거한다.
 // 건물·간판 재질은 모듈 상수로 공유하고 폐기하지 않는다. geometry만 구간마다 폐기한다.
 export function createChunkMeshes(scene: THREE.Scene) {
@@ -217,12 +262,15 @@ export function createChunkMeshes(scene: THREE.Scene) {
     add(chunk: Chunk): void {
       if (groups.has(chunk.index)) return;
       const group = new THREE.Group();
+      for (const sidewalk of sidewalkSpecs(chunk.road)) {
+        group.add(boxMesh(sidewalk, pavementMaterial));
+      }
       group.add(boxMesh(chunk.road, roadMaterial));
       if (chunk.landmark) {
         const kind = chunk.landmark.kind;
         let landmarkTemplate = landmarkTemplates.get(kind);
         if (!landmarkTemplate) {
-          landmarkTemplate = kind === 'aejiheon' ? createAejiheon() : createDaeyangAi();
+          landmarkTemplate = LANDMARK_FACTORIES[kind]();
           landmarkTemplates.set(kind, landmarkTemplate);
         }
         const landmark = landmarkTemplate.clone();

@@ -104,8 +104,6 @@ const RECOVERY_MESSAGES: Record<PauseReason, string> = {
 const FIRE_FAILURE_MESSAGES: Record<FireFailure, string> = {
   noTarget: '표적 없음',
   releasedWhileFiring: '발사 도중 해제',
-  outOfRange: '사거리 이탈',
-  occluded: '가림',
 };
 
 // 화면 단계별로 다음에 할 일을 안내한다(pairing/calibrating/ready/playing). paused·gameOver는
@@ -163,8 +161,8 @@ const swingOptions = defaultSwingOptions();
 // 부착 순간에만 한 번 재생하는 짧은 원형 플래시(중복 방지: attachFlashStartMs로 진행 중 여부 판단).
 let attachFlashStartMs: number | null = null;
 
-// 표적 없이 발사했을 때 잠깐 뻗었다 사라지는 거미줄. 끝점은 발사 순간 좌표로 고정한다.
-let missBeam: { point: Vec3; startedAtMs: number } | null = null;
+// 걸리지 못한 거미줄. 최대 사거리에서 끊긴 뒤에도 같은 방향으로 계속 날아가며 흐려진다.
+let missBeam: { point: Vec3; direction: Vec3; startedAtMs: number } | null = null;
 
 // 조준점 갱신에서 계산한 부착 예정점. 표시와 진단이 같은 값을 쓰도록 보관한다.
 let previewTarget: TargetHit | null = null;
@@ -519,16 +517,8 @@ function stepPhysicsFixed(nowSec: number) {
       missBeam = null;
       sfx.playFire();
     },
-    onFireMiss: (aimDirection) => {
-      const reach = gameConfig.web.maxFireDistance;
-      missBeam = {
-        point: [
-          origin[0] + aimDirection[0] * reach,
-          origin[1] + aimDirection[1] * reach,
-          origin[2] + aimDirection[2] * reach,
-        ],
-        startedAtMs: nowSec * 1000,
-      };
+    onFireMiss: (tip, direction) => {
+      missBeam = { point: tip, direction, startedAtMs: nowSec * 1000 };
       sfx.playMiss();
     },
     onAttach: (target) => {
@@ -656,21 +646,25 @@ function frameLoop(nowMs: number) {
     updateCameraPosition(sceneHandle.camera, renderPos);
     updateRopeLine(ropeLine, renderPos, attachedPoint);
 
-    // 발사 진행과 빗나감 연출은 같은 선을 공유한다.
-    const firingTarget = phase === 'playing' ? (swing?.pendingTargetPoint ?? null) : null;
-    if (firingTarget) {
+    // 뻗어나가는 줄과 빗나감 연출은 같은 선을 공유한다.
+    const firingTip = phase === 'playing' ? (swing?.tipPoint ?? null) : null;
+    if (firingTip) {
       const pulse = 0.6 + 0.4 * Math.sin(nowMs * gameConfig.effects.firePulsePerMs);
-      updateFireBeamLine(fireBeamLine, renderPos, firingTarget, pulse);
+      updateFireBeamLine(fireBeamLine, renderPos, firingTip, pulse);
     } else if (missBeam) {
-      // 빗나간 발사는 같은 선을 흐려지게 해서 "쐈지만 걸리지 않았다"를 보여준다.
-      const fadeProgress = (nowMs - missBeam.startedAtMs) / gameConfig.effects.missBeamDurationMs;
+      // 걸리지 못한 줄은 같은 속도로 계속 날아가며 흐려진다.
+      const elapsedMs = nowMs - missBeam.startedAtMs;
+      const fadeProgress = elapsedMs / gameConfig.effects.missBeamDurationMs;
       if (fadeProgress >= 1) missBeam = null;
-      updateFireBeamLine(
-        fireBeamLine,
-        renderPos,
-        missBeam?.point ?? null,
-        Math.max(0, 1 - fadeProgress),
-      );
+      const flownM = (elapsedMs / 1000) * gameConfig.web.travelSpeedMps;
+      const tip: Vec3 | null = missBeam
+        ? [
+            missBeam.point[0] + missBeam.direction[0] * flownM,
+            missBeam.point[1] + missBeam.direction[1] * flownM,
+            missBeam.point[2] + missBeam.direction[2] * flownM,
+          ]
+        : null;
+      updateFireBeamLine(fireBeamLine, renderPos, tip, Math.max(0, 1 - fadeProgress));
     } else {
       updateFireBeamLine(fireBeamLine, renderPos, null, 0);
     }

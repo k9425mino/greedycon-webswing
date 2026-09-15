@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { selectTarget, WebSwing, type TargetHit, type TargetQuery } from '../../client/host/web';
+import {
+  selectTarget,
+  WebSwing,
+  type TargetHit,
+  type TargetQuery,
+  type Vec3,
+} from '../../client/host/web';
 
 const options = {
-  effectSec: 0.1,
+  travelSpeedMps: 120,
   minDistance: 3,
   maxDistance: 70,
   assistRadius: 2.5,
@@ -66,8 +72,18 @@ describe('selectTarget', () => {
 
 describe('WebSwing', () => {
   const target: TargetHit = { point: [0, 6, -10], distance: Math.hypot(6, 10) };
+  // 줄 끝이 표적 거리(약 11.7m)를 지나는 시각. 120m/s로 약 0.097초다.
+  // 부동소수 오차로 줄 끝이 표적 거리에 한 틱 모자라지 않도록 아주 작은 여유를 둔다.
+  const arrivalSec = target.distance / options.travelSpeedMps + 1e-6;
 
-  function makeSwing(query_: TargetQuery = query({ raycastBuilding: () => target })) {
+  // 줄 끝이 아직 닿지 않은 건물은 걸리지 않는다. maxDistance(=지금까지 뻗은 길이)를 존중한다.
+  function reachable(hit: TargetHit): TargetQuery {
+    return query({
+      raycastBuilding: (_o, _d, maxDistance) => (hit.distance <= maxDistance ? hit : null),
+    });
+  }
+
+  function makeSwing(query_: TargetQuery = reachable(target)) {
     return new WebSwing(query_, options);
   }
 
@@ -78,50 +94,75 @@ describe('WebSwing', () => {
     swing.update(false, 0.02, [0, 0, 0], [0, 0, -1], callbacks);
     swing.update(true, 0.04, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('firing');
-    swing.update(true, 0.15, [0, 0, 0], [0, 0, -1], callbacks);
+    swing.update(true, 0.04 + arrivalSec, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('attached');
   });
 
-  it('한 번 누를 때 한 번만 발사·부착한다', () => {
+  it('줄 끝이 표적에 닿기 전에는 부착하지 않는다', () => {
     const swing = makeSwing();
     let attachCount = 0;
     const callbacks = { onAttach: () => attachCount++, onRelease: () => {} };
 
     swing.update(true, 0, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('firing');
-    swing.update(true, 0.05, [0, 0, 0], [0, 0, -1], callbacks); // 효과 시간 전
+    // 0.05초면 6m까지만 뻗어 표적(약 11.7m)에 닿지 않는다.
+    swing.update(true, 0.05, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('firing');
-    swing.update(true, 0.1, [0, 0, 0], [0, 0, -1], callbacks); // 효과 완료
+    expect(attachCount).toBe(0);
+
+    swing.update(true, arrivalSec, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('attached');
     expect(attachCount).toBe(1);
     expect(swing.lastFailure).toBeNull();
 
     // 계속 누르고 있어도 재발사하지 않는다
-    swing.update(true, 0.2, [0, 0, 0], [0, 0, -1], callbacks);
+    swing.update(true, 0.5, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('attached');
     expect(attachCount).toBe(1);
   });
 
-  it('표적이 없으면 releasedRequired로 이동하고, 뗄 때까지 재발사를 막는다', () => {
+  it('줄 끝이 뻗어나가는 동안 tipPoint가 발사 방향으로 자란다', () => {
+    const swing = makeSwing();
+    const callbacks = { onAttach: () => {}, onRelease: () => {} };
+
+    expect(swing.tipPoint).toBeNull();
+    swing.update(true, 0, [0, 0, 0], [0, 0, -1], callbacks);
+    expect(swing.tipPoint).toEqual([0, 0, 0]);
+
+    swing.update(true, 0.05, [0, 0, 0], [0, 0, -1], callbacks);
+    expect(swing.tipPoint).toEqual([0, 0, -6]);
+
+    swing.update(true, arrivalSec, [0, 0, 0], [0, 0, -1], callbacks);
+    expect(swing.phase).toBe('attached');
+    expect(swing.tipPoint).toBeNull();
+  });
+
+  it('최대 사거리까지 아무것도 못 걸면 releasedRequired로 이동하고, 뗄 때까지 재발사를 막는다', () => {
     const swing = makeSwing(query());
     let attachCount = 0;
     const callbacks = { onAttach: () => attachCount++, onRelease: () => {} };
 
     swing.update(true, 0, [0, 0, 0], [0, 0, -1], callbacks);
+    // 최대 사거리(70m)까지 뻗기 전에는 아직 발사 중이다.
+    expect(swing.phase).toBe('firing');
+    swing.update(true, 0.3, [0, 0, 0], [0, 0, -1], callbacks);
+    expect(swing.phase).toBe('firing');
+
+    swing.update(true, 0.6, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('releasedRequired');
     expect(swing.lastFailure).toBe('noTarget');
 
-    swing.update(true, 0.1, [0, 0, 0], [0, 0, -1], callbacks);
+    swing.update(true, 0.7, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('releasedRequired');
     expect(attachCount).toBe(0);
 
-    swing.update(false, 0.2, [0, 0, 0], [0, 0, -1], callbacks);
+    swing.update(false, 0.8, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('idle');
     // 실패 사유는 다음 발사까지 남아 진단에 보인다.
     expect(swing.lastFailure).toBe('noTarget');
   });
 
-  it('발사 효과 중 손을 떼면 부착하지 않고 idle로 돌아온다', () => {
+  it('뻗어나가는 도중 손을 떼면 부착하지 않고 idle로 돌아온다', () => {
     const swing = makeSwing();
     let attachCount = 0;
     const callbacks = { onAttach: () => attachCount++, onRelease: () => {} };
@@ -141,50 +182,35 @@ describe('WebSwing', () => {
     const callbacks = { onAttach: () => {}, onRelease: () => (released = true) };
 
     swing.update(true, 0, [0, 0, 0], [0, 0, -1], callbacks);
-    swing.update(true, 0.1, [0, 0, 0], [0, 0, -1], callbacks);
+    swing.update(true, arrivalSec, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('attached');
 
-    swing.update(false, 0.2, [0, 0, 0], [0, 0, -1], callbacks);
+    swing.update(false, 0.3, [0, 0, 0], [0, 0, -1], callbacks);
     expect(released).toBe(true);
     expect(swing.phase).toBe('idle');
   });
 
-  it('효과 완료 시점에 표적이 더 이상 유효하지 않으면 부착하지 않는다', () => {
-    // 발사 순간엔 사거리 안이지만, 재확인 시점(플레이어 이동)엔 최대 거리를 벗어난 경우
-    const farTarget: TargetHit = { point: [0, 6, -10], distance: Math.hypot(6, 10) };
-    const swing = makeSwing(query({ raycastBuilding: () => farTarget }));
-    let attachCount = 0;
-    const callbacks = { onAttach: () => attachCount++, onRelease: () => {} };
+  it('줄은 발사 순간의 출발점·방향을 따라간다(플레이어가 움직여도 바뀌지 않는다)', () => {
+    const origins: Vec3[] = [];
+    const swing = new WebSwing(
+      query({
+        raycastBuilding: (origin) => {
+          origins.push(origin);
+          return null;
+        },
+      }),
+      options,
+    );
+    const callbacks = { onAttach: () => {}, onRelease: () => {} };
 
-    swing.update(true, 0, [0, 0, 0], [0, 0, -1], callbacks);
-    expect(swing.phase).toBe('firing');
-    // 재확인 시점의 origin을 최대 사거리(70) 밖으로 옮긴다
-    swing.update(true, 0.1, [0, 0, -85], [0, 0, -1], callbacks);
-    expect(swing.phase).toBe('releasedRequired');
-    expect(attachCount).toBe(0);
-    expect(swing.lastFailure).toBe('outOfRange');
+    swing.update(true, 0, [0, 2, 0], [0, 0, -1], callbacks);
+    // 발사 후 플레이어가 이동하고 조준도 바뀌었지만 줄의 반직선은 그대로다.
+    swing.update(true, 0.05, [5, 3, -20], [1, 0, 0], callbacks);
+    expect(origins).toEqual([[0, 2, 0]]);
+    expect(swing.tipPoint).toEqual([0, 2, -6]);
   });
 
-  it('효과 완료 시점에 표적이 가려지면 가림을 실패 사유로 남긴다', () => {
-    let visible = true;
-    const swing = makeSwing(query({ raycastBuilding: () => target, isVisible: () => visible }));
-    let attachCount = 0;
-    const callbacks = { onAttach: () => attachCount++, onRelease: () => {} };
-
-    swing.update(true, 0, [0, 0, 0], [0, 0, -1], callbacks);
-    expect(swing.phase).toBe('firing');
-    visible = false;
-    swing.update(true, 0.1, [0, 0, 0], [0, 0, -1], callbacks);
-    expect(swing.phase).toBe('releasedRequired');
-    expect(attachCount).toBe(0);
-    expect(swing.lastFailure).toBe('occluded');
-
-    // 새 게임·재시작 기준을 다시 잡으면 실패 사유도 지워진다.
-    swing.reset();
-    expect(swing.lastFailure).toBeNull();
-  });
-
-  it('firing 시작 시 onFireStart를 한 번만 호출하고 pendingTargetPoint를 노출한다', () => {
+  it('발사 시작에 onFireStart를 한 번만 호출한다', () => {
     const swing = makeSwing();
     let fireStartCount = 0;
     const callbacks = {
@@ -193,50 +219,31 @@ describe('WebSwing', () => {
       onRelease: () => {},
     };
 
-    expect(swing.pendingTargetPoint).toBeNull();
     swing.update(true, 0, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('firing');
     expect(fireStartCount).toBe(1);
-    expect(swing.pendingTargetPoint).toEqual(target.point);
 
-    // 효과 시간 동안 계속 눌러도 다시 호출되지 않는다.
+    // 뻗어나가는 동안 계속 눌러도 다시 호출되지 않는다.
     swing.update(true, 0.05, [0, 0, 0], [0, 0, -1], callbacks);
     expect(fireStartCount).toBe(1);
-
-    swing.update(true, 0.1, [0, 0, 0], [0, 0, -1], callbacks);
-    expect(swing.phase).toBe('attached');
-    expect(swing.pendingTargetPoint).toBeNull();
   });
 
-  it('표적이 없으면 onFireStart를 호출하지 않는다', () => {
+  it('표적이 없으면 최대 사거리에 도달한 줄 끝·방향과 함께 onFireMiss를 한 번 호출한다', () => {
     const swing = makeSwing(query());
-    let fireStartCount = 0;
+    const misses: Array<{ tip: Vec3; direction: Vec3 }> = [];
     const callbacks = {
-      onFireStart: () => fireStartCount++,
+      onFireMiss: (tip: Vec3, direction: Vec3) => misses.push({ tip, direction }),
       onAttach: () => {},
       onRelease: () => {},
     };
 
-    swing.update(true, 0, [0, 0, 0], [0, 0, -1], callbacks);
+    swing.update(true, 0, [0, 1, 0], [1, 0, 0], callbacks);
+    swing.update(true, 0.6, [0, 1, 0], [1, 0, 0], callbacks);
     expect(swing.phase).toBe('releasedRequired');
-    expect(fireStartCount).toBe(0);
-  });
-
-  it('표적이 없으면 조준 방향과 함께 onFireMiss를 한 번 호출한다', () => {
-    const swing = makeSwing(query());
-    const misses: Array<[number, number, number]> = [];
-    const callbacks = {
-      onFireMiss: (direction: [number, number, number]) => misses.push(direction),
-      onAttach: () => {},
-      onRelease: () => {},
-    };
-
-    swing.update(true, 0, [0, 0, 0], [1, 0, 0], callbacks);
-    expect(swing.phase).toBe('releasedRequired');
-    expect(misses).toEqual([[1, 0, 0]]);
+    expect(misses).toEqual([{ tip: [70, 1, 0], direction: [1, 0, 0] }]);
 
     // 손을 떼기 전에는 다시 발사하지 않는다.
-    swing.update(true, 0.2, [0, 0, 0], [1, 0, 0], callbacks);
+    swing.update(true, 0.8, [0, 1, 0], [1, 0, 0], callbacks);
     expect(misses).toHaveLength(1);
   });
 
@@ -255,12 +262,10 @@ describe('WebSwing', () => {
     swing.update(true, 0.2, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('firing');
   });
-});
 
-describe('WebSwing 실패 사유 구분', () => {
   it('낮은 벽면도 높이와 무관하게 부착한다', () => {
     const low: TargetHit = { point: [0, 1, -10], distance: Math.hypot(1, 10) };
-    const swing = new WebSwing(query({ raycastBuilding: () => low }), options);
+    const swing = makeSwing(reachable(low));
     const attached: TargetHit[] = [];
     const callbacks = {
       onAttach: (hit: TargetHit) => attached.push(hit),
@@ -269,16 +274,19 @@ describe('WebSwing 실패 사유 구분', () => {
 
     swing.update(true, 0, [0, 0, 0], [0, 0, -1], callbacks);
     expect(swing.phase).toBe('firing');
-    swing.update(true, 0.1, [0, 0, 0], [0, 0, -1], callbacks);
+    swing.update(
+      true,
+      low.distance / options.travelSpeedMps + 1e-6,
+      [0, 0, 0],
+      [0, 0, -1],
+      callbacks,
+    );
     expect(swing.phase).toBe('attached');
     expect(attached[0]!.point).toEqual(low.point);
     expect(swing.lastFailure).toBeNull();
-  });
 
-  it('건물 자체가 없으면 noTarget으로 남긴다', () => {
-    const swing = new WebSwing(query(), options);
-
-    swing.update(true, 0, [0, 0, 0], [0, 0, -1], { onAttach: () => {}, onRelease: () => {} });
-    expect(swing.lastFailure).toBe('noTarget');
+    // 새 게임·재시작 기준을 다시 잡으면 실패 사유도 지워진다.
+    swing.reset();
+    expect(swing.lastFailure).toBeNull();
   });
 });

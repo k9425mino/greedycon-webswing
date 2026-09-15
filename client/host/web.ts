@@ -18,25 +18,23 @@ export interface TargetQuery {
 export type SwingPhase = 'idle' | 'firing' | 'attached' | 'releasedRequired';
 
 // 부착에 실패한 이유. 진단 표시용이며 상태 전이에는 쓰지 않는다.
-export type FireFailure = 'noTarget' | 'releasedWhileFiring' | 'outOfRange' | 'occluded';
+export type FireFailure = 'noTarget' | 'releasedWhileFiring';
 
 export type SwingOptions = {
-  effectSec: number;
+  travelSpeedMps: number;
   minDistance: number;
   maxDistance: number;
   assistRadius: number;
 };
 
-function subtract(a: Vec3, b: Vec3): Vec3 {
-  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-}
-
 function length(v: Vec3): number {
   return Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 }
 
-function distanceBetween(a: Vec3, b: Vec3): number {
-  return length(subtract(a, b));
+function normalize(v: Vec3): Vec3 {
+  const len = length(v);
+  if (len < 1e-6) return [0, 0, -1];
+  return [v[0] / len, v[1] / len, v[2] / len];
 }
 
 // 직접 맞힌 건물 표면을 우선하고, 없으면 조준 방향으로 구체를 쓸어 벽면 접촉점을 찾는다
@@ -68,9 +66,11 @@ export function selectTarget(
 }
 
 export type SwingCallbacks = {
-  onFireStart?: (target: TargetHit) => void;
-  // 표적을 찾지 못한 발사. 쏜 것 자체는 보여줘야 해서 조준 방향을 그대로 넘긴다.
-  onFireMiss?: (aimDirection: Vec3) => void;
+  // 발사 시작. 이 시점에는 아직 표적이 없다(줄 끝이 뻗어나가며 찾는다).
+  onFireStart?: () => void;
+  // 최대 사거리까지 아무것도 걸지 못한 발사. 걸리지 못한 줄이 계속 날아가는 연출을 위해
+  // 줄 끝 위치와 진행 방향을 넘긴다.
+  onFireMiss?: (tip: Vec3, direction: Vec3) => void;
   onAttach: (target: TargetHit) => void;
   onRelease: () => void;
 };
@@ -78,8 +78,11 @@ export type SwingCallbacks = {
 // idle -> firing -> attached -> idle, 실패 시 releasedRequired (ARCHITECTURE 4절).
 export class WebSwing {
   phase: SwingPhase = 'idle';
-  private pendingTarget: TargetHit | null = null;
+  // 발사 순간 고정한 줄의 출발점·방향. 줄 끝은 이 반직선을 따라 일정 속도로 뻗어나간다.
+  private fireOrigin: Vec3 = [0, 0, 0];
+  private fireDirection: Vec3 = [0, 0, -1];
   private fireStartedAt = 0;
+  private reach = 0;
   private lastPressed = false;
   private failure: FireFailure | null = null;
 
@@ -101,17 +104,13 @@ export class WebSwing {
 
     if (this.phase === 'idle') {
       if (!risingEdge) return;
-      const target = selectTarget(origin, aimDirection, this.query, this.options);
-      if (target) {
-        this.phase = 'firing';
-        this.pendingTarget = target;
-        this.fireStartedAt = nowSec;
-        callbacks.onFireStart?.(target);
-      } else {
-        callbacks.onFireMiss?.(aimDirection);
-        this.failure = 'noTarget';
-        this.phase = 'releasedRequired';
-      }
+      // 누른 순간에는 표적을 정하지 않는다. 줄 끝이 뻗어나가다 처음 걸리는 건물에 부착한다.
+      this.phase = 'firing';
+      this.fireOrigin = origin;
+      this.fireDirection = normalize(aimDirection);
+      this.fireStartedAt = nowSec;
+      this.reach = 0;
+      callbacks.onFireStart?.();
       return;
     }
 
@@ -120,22 +119,27 @@ export class WebSwing {
         this.failure = 'releasedWhileFiring';
         // 이미 손을 뗐으므로 추가 해제를 기다리면 바로 이어진 다음 누름을 놓친다.
         this.phase = 'idle';
-        this.pendingTarget = null;
+        this.reach = 0;
         return;
       }
-      if (nowSec - this.fireStartedAt < this.options.effectSec) return;
-      const target = this.pendingTarget;
-      this.pendingTarget = null;
-      const distance = target ? distanceBetween(origin, target.point) : Infinity;
-      const inRange = distance >= this.options.minDistance && distance <= this.options.maxDistance;
-      // 발사 연출 동안 플레이어가 움직이므로 거리·가시성을 다시 본다.
-      const stillValid = target !== null && inRange && this.query.isVisible(origin, target.point);
-      if (stillValid && target) {
+      this.reach = Math.min(
+        (nowSec - this.fireStartedAt) * this.options.travelSpeedMps,
+        this.options.maxDistance,
+      );
+      // 지금까지 뻗은 길이 안에서만 표적을 찾는다. 줄 끝이 아직 닿지 않은 건물은 걸리지 않는다.
+      const target = selectTarget(this.fireOrigin, this.fireDirection, this.query, {
+        ...this.options,
+        maxDistance: this.reach,
+      });
+      if (target) {
         this.failure = null;
-        callbacks.onAttach({ point: target.point, distance });
+        callbacks.onAttach(target);
         this.phase = 'attached';
-      } else {
-        this.failure = !target ? 'noTarget' : !inRange ? 'outOfRange' : 'occluded';
+        return;
+      }
+      if (this.reach >= this.options.maxDistance) {
+        callbacks.onFireMiss?.(this.tipPoint ?? origin, this.fireDirection);
+        this.failure = 'noTarget';
         this.phase = 'releasedRequired';
       }
       return;
@@ -158,7 +162,7 @@ export class WebSwing {
   // currentlyPressed: 재개·재시작 순간 이미 눌려있어도 자동 발사로 취급하지 않기 위해 기준값으로 사용한다.
   reset(currentlyPressed = false): void {
     this.phase = 'idle';
-    this.pendingTarget = null;
+    this.reach = 0;
     this.lastPressed = currentlyPressed;
     this.failure = null;
   }
@@ -168,15 +172,20 @@ export class WebSwing {
     return this.failure;
   }
 
-  // 발사 진행 중 표적점(시각 효과용). firing 단계가 아니면 null이다.
-  get pendingTargetPoint(): Vec3 | null {
-    return this.phase === 'firing' ? (this.pendingTarget?.point ?? null) : null;
+  // 뻗어나가는 중인 줄 끝(시각 효과용). firing 단계가 아니면 null이다.
+  get tipPoint(): Vec3 | null {
+    if (this.phase !== 'firing') return null;
+    return [
+      this.fireOrigin[0] + this.fireDirection[0] * this.reach,
+      this.fireOrigin[1] + this.fireDirection[1] * this.reach,
+      this.fireOrigin[2] + this.fireDirection[2] * this.reach,
+    ];
   }
 }
 
 export function defaultSwingOptions(): SwingOptions {
   return {
-    effectSec: gameConfig.web.fireEffectSec,
+    travelSpeedMps: gameConfig.web.travelSpeedMps,
     minDistance: gameConfig.web.minFireDistance,
     maxDistance: gameConfig.web.maxFireDistance,
     assistRadius: gameConfig.web.aimAssistRadiusM,

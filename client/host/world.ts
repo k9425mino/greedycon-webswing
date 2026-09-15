@@ -3,6 +3,7 @@ import type { BoxSpec, Vec3 } from './physics';
 import {
   AEJIHEON_BOUNDS,
   DAEYANG_AI_BOUNDS,
+  GWANGGAETO_BOUNDS,
   landmarkColliders,
   type LandmarkPlacement,
 } from './models/landmarkPlacement';
@@ -24,6 +25,13 @@ export function chunkBuildingColliders(chunk: Chunk): BoxSpec[] {
 }
 
 const ROAD_THICKNESS = 1;
+
+const LANDMARK_ORDER = ['aejiheon', 'daeyang-ai', 'gwanggaeto'] as const;
+const LANDMARK_BOUNDS = {
+  aejiheon: AEJIHEON_BOUNDS,
+  'daeyang-ai': DAEYANG_AI_BOUNDS,
+  gwanggaeto: GWANGGAETO_BOUNDS,
+};
 
 // 고정 seed 난수. 구간 index만으로 배치가 정해져 생성 순서와 무관하게 재현된다(ARCHITECTURE 5절).
 function mulberry32(seed: number): () => number {
@@ -82,10 +90,10 @@ export function buildChunk(index: number): Chunk {
   const occurrence =
     (index - gameConfig.world.landmarkFirstChunk) / gameConfig.world.landmarkEveryChunks;
   if (Number.isInteger(occurrence) && occurrence >= 0) {
-    const kind = occurrence % 2 === 0 ? 'aejiheon' : 'daeyang-ai';
-    // 두 종류 모두 좌우에서 보이도록 한 쌍마다 방향을 바꾼다.
-    const side = (occurrence + Math.floor(occurrence / 2)) % 2 === 0 ? 1 : -1;
-    const bounds = kind === 'aejiheon' ? AEJIHEON_BOUNDS : DAEYANG_AI_BOUNDS;
+    const kind = LANDMARK_ORDER[occurrence % LANDMARK_ORDER.length]!;
+    // 매번 좌우를 바꾼다. 종류가 3개(홀수)라 한 바퀴 돌 때마다 같은 종류가 반대편에 선다.
+    const side = occurrence % 2 === 0 ? 1 : -1;
+    const bounds = LANDMARK_BOUNDS[kind];
     const scale = gameConfig.world.landmarkScale[kind];
     const centerZ = (startZ + endZ) / 2 - (side * (bounds.minX + bounds.maxX) * scale) / 2;
     landmark = {
