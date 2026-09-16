@@ -3,24 +3,97 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#7d0a12" />
     <title>손목 웹슈터 - 컨트롤러</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <div id="app">
-      <p id="status-message">시작 버튼을 눌러 센서 권한을 허용하세요.</p>
-      <button id="btn-permission">시작 / 센서 권한 허용</button>
-      <div id="touch-area" data-pressed="false">
-        <span>중지·약지로 눌러 발사·유지</span>
+    <div id="app" data-state="idle" data-pressed="false">
+      <svg
+        id="suit-web"
+        viewBox="0 0 200 434"
+        preserveAspectRatio="xMidYMid slice"
+        aria-hidden="true"
+      ></svg>
+      <div class="suit-hex" aria-hidden="true"></div>
+      <div class="suit-vignette" aria-hidden="true"></div>
+
+      <svg class="strand" viewBox="0 0 70 14" aria-hidden="true">
+        <line x1="35" y1="14" x2="35" y2="0" />
+        <line x1="35" y1="14" x2="22" y2="0" />
+        <line x1="35" y1="14" x2="48" y2="0" />
+      </svg>
+
+      <div id="touch-area" role="button" aria-label="발사">
+        <div class="shooter-plate">
+          <div class="shooter-face">
+            <svg class="chev" viewBox="0 0 100 150" preserveAspectRatio="none" aria-hidden="true">
+              <path vector-effect="non-scaling-stroke" d="M13 40 L27 58 L13 76 L27 94 L13 112" />
+              <path vector-effect="non-scaling-stroke" d="M87 40 L73 58 L87 76 L73 94 L87 112" />
+              <path vector-effect="non-scaling-stroke" d="M36 26 L50 14 L64 26" />
+            </svg>
+          </div>
+        </div>
+        <div class="nozzle"></div>
+        <div class="trigger">
+          <svg viewBox="0 0 64 64" aria-hidden="true">
+            <g class="spider-body">
+              <ellipse cx="32" cy="30" rx="6" ry="9" />
+              <ellipse cx="32" cy="19" rx="4.6" ry="4" />
+            </g>
+            <g class="spider-legs" stroke-width="2.4" fill="none" stroke-linecap="round">
+              <path d="M27 22 C20 19 15 14 12 8" />
+              <path d="M26 26 C17 25 11 22 7 17" />
+              <path d="M26 31 C17 33 11 37 8 43" />
+              <path d="M27 36 C21 41 17 48 16 55" />
+              <path d="M37 22 C44 19 49 14 52 8" />
+              <path d="M38 26 C47 25 53 22 57 17" />
+              <path d="M38 31 C47 33 53 37 56 43" />
+              <path d="M37 36 C43 41 47 48 48 55" />
+            </g>
+          </svg>
+        </div>
       </div>
-      <label>
-        전송 속도
-        <select id="select-rate">
-          <option value="30">30Hz</option>
-          <option value="60" selected>60Hz</option>
-          <option value="120">120Hz</option>
-        </select>
-      </label>
+
+      <div class="footer">
+        <div id="rate-control" role="button" tabindex="0" data-level="2" aria-label="전송 속도">
+          <i></i><i></i><i></i>
+        </div>
+        <div class="leds">
+          <span id="led-link" class="led"></span>
+          <span id="led-sensor" class="led"></span>
+          <span id="led-fire" class="led"></span>
+        </div>
+      </div>
+
+      <button id="btn-permission" aria-label="시작 / 센서 권한 허용">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <g class="spider-body">
+            <ellipse cx="32" cy="30" rx="6" ry="9" />
+            <ellipse cx="32" cy="19" rx="4.6" ry="4" />
+          </g>
+          <g class="spider-legs" stroke-width="2.4" fill="none" stroke-linecap="round">
+            <path d="M27 22 C20 19 15 14 12 8" />
+            <path d="M26 26 C17 25 11 22 7 17" />
+            <path d="M26 31 C17 33 11 37 8 43" />
+            <path d="M27 36 C21 41 17 48 16 55" />
+            <path d="M37 22 C44 19 49 14 52 8" />
+            <path d="M38 26 C47 25 53 22 57 17" />
+            <path d="M38 31 C47 33 53 37 56 43" />
+            <path d="M37 36 C43 41 47 48 48 55" />
+          </g>
+          <path
+            class="deny-slash"
+            d="M14 50 L50 14"
+            stroke-width="3.6"
+            stroke-linecap="round"
+            fill="none"
+          />
+        </svg>
+      </button>
+
+      <!-- 화면에는 글자를 두지 않는다. 스크린 리더와 e2e 검증용으로만 남긴다. -->
+      <p id="status-message" aria-live="polite">시작 버튼을 눌러 센서 권한을 허용하세요.</p>
     </div>
     <script type="module" src="./main.ts"></script>
   </body>

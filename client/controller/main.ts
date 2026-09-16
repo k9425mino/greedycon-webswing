@@ -1,13 +1,20 @@
 import type { ControllerStatus, HostState, InputFrame } from '@shared/types';
-import { gameConfig, type InputRateHz } from '@shared/config';
+import { AVAILABLE_INPUT_RATES_HZ, gameConfig, type InputRateHz } from '@shared/config';
 import { requestOrientationPermission, SensorTracker } from './sensor';
 import { TouchState } from './touch';
 import { ControllerSocket } from './socket';
+import { buildSuitWeb } from './suit';
 
+const app = document.getElementById('app') as HTMLElement;
 const statusMessage = document.getElementById('status-message') as HTMLElement;
 const btnPermission = document.getElementById('btn-permission') as HTMLButtonElement;
 const touchArea = document.getElementById('touch-area') as HTMLElement;
-const selectRate = document.getElementById('select-rate') as HTMLSelectElement;
+const rateControl = document.getElementById('rate-control') as HTMLElement;
+const ledLink = document.getElementById('led-link') as HTMLElement;
+const ledSensor = document.getElementById('led-sensor') as HTMLElement;
+const ledFire = document.getElementById('led-fire') as HTMLElement;
+
+buildSuitWeb(document.getElementById('suit-web') as unknown as SVGSVGElement);
 
 const inviteToken = new URLSearchParams(location.search).get('invite') ?? '';
 
@@ -19,6 +26,19 @@ let sendTimer: ReturnType<typeof setInterval> | null = null;
 
 const sensorEventCounter = { count: 0, windowStart: performance.now() };
 const sendCounter = { count: 0, windowStart: performance.now() };
+
+// 화면에 글자를 두지 않으므로 상태는 오버레이·LED로만 보인다. 문구는 스크린 리더용으로 남긴다.
+function setState(state: 'idle' | 'live' | 'error', message: string) {
+  app.dataset.state = state;
+  statusMessage.textContent = message;
+  ledLink.classList.toggle('on', state === 'live');
+  ledLink.classList.toggle('err', state === 'error');
+}
+
+function setPressed(pressed: boolean) {
+  app.dataset.pressed = String(pressed);
+  ledFire.classList.toggle('fire', pressed);
+}
 
 function nextSeq(): number {
   seq += 1;
@@ -59,14 +79,15 @@ function sendStatus() {
     sensorHz: windowedRate(sensorEventCounter),
     sendHz: windowedRate(sendCounter),
   };
+  ledSensor.classList.toggle('on', status.sensorAvailable);
   controllerSocket.sendStatus(status);
 }
 
 const controllerSocket = new ControllerSocket((state: HostState) => {
   if (state.phase === 'paused' && state.reason) {
-    statusMessage.textContent = pauseGuidance(state.reason);
+    setState('error', pauseGuidance(state.reason));
   } else {
-    statusMessage.textContent = '연결됨. 노트북 화면의 안내를 따르세요.';
+    setState('live', '연결됨. 노트북 화면의 안내를 따르세요.');
   }
 });
 
@@ -87,13 +108,13 @@ function handlePointerDown(event: PointerEvent) {
   event.preventDefault();
   touchArea.setPointerCapture(event.pointerId);
   const changed = touch.add(event.pointerId);
-  touchArea.dataset.pressed = String(touch.pressed);
+  setPressed(touch.pressed);
   if (changed) sendPressTransitionNow();
 }
 
 function handlePointerUp(event: PointerEvent) {
   const changed = touch.remove(event.pointerId);
-  touchArea.dataset.pressed = String(touch.pressed);
+  setPressed(touch.pressed);
   if (changed) sendPressTransitionNow();
 }
 
@@ -111,7 +132,7 @@ touchArea.addEventListener('lostpointercapture', handlePointerUp);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     const changed = touch.clear();
-    touchArea.dataset.pressed = 'false';
+    setPressed(false);
     if (changed) sendPressTransitionNow();
   }
   sendStatus();
@@ -120,7 +141,7 @@ document.addEventListener('visibilitychange', () => {
 window.screen.orientation?.addEventListener('change', () => {
   // 화면 회전 시 터치를 해제하고 재보정을 요구한다(호스트가 sensorAvailable false로 감지해 일시 정지).
   const changed = touch.clear();
-  touchArea.dataset.pressed = 'false';
+  setPressed(false);
   if (changed) sendPressTransitionNow();
   controllerSocket.sendStatus({
     sensorAvailable: false,
@@ -130,9 +151,24 @@ window.screen.orientation?.addEventListener('change', () => {
   });
 });
 
-selectRate.addEventListener('change', () => {
-  rateHz = Number(selectRate.value) as InputRateHz;
-  startSendLoop();
+// 전송 속도는 눈금 세 칸으로만 보인다. 탭할 때마다 30/60/120Hz를 순환한다.
+function showRateLevel() {
+  rateControl.dataset.level = String(AVAILABLE_INPUT_RATES_HZ.indexOf(rateHz) + 1);
+}
+
+function cycleRate() {
+  const next = (AVAILABLE_INPUT_RATES_HZ.indexOf(rateHz) + 1) % AVAILABLE_INPUT_RATES_HZ.length;
+  rateHz = AVAILABLE_INPUT_RATES_HZ[next] ?? rateHz;
+  showRateLevel();
+  if (sendTimer) startSendLoop();
+}
+
+showRateLevel();
+rateControl.addEventListener('click', cycleRate);
+rateControl.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  event.preventDefault();
+  cycleRate();
 });
 
 btnPermission.addEventListener('click', async () => {
@@ -140,18 +176,18 @@ btnPermission.addEventListener('click', async () => {
   try {
     const result = await requestOrientationPermission();
     if (result === 'denied') {
-      statusMessage.textContent =
-        '센서 권한이 거부되었습니다. 브라우저 설정에서 허용한 뒤 새로고침하세요.';
+      setState('error', '센서 권한이 거부되었습니다. 브라우저 설정에서 허용한 뒤 새로고침하세요.');
       return;
     }
     if (result === 'unavailable') {
-      statusMessage.textContent = '이 브라우저에서는 방향 센서를 사용할 수 없습니다.';
+      setState('error', '이 브라우저에서는 방향 센서를 사용할 수 없습니다.');
       return;
     }
     sensor.start(() => {
       sensorEventCounter.count += 1;
     });
     setTimeout(() => {
+      // 센서 LED가 꺼진 것으로 이미 보이므로 오버레이로 발사 버튼을 덮지 않는다.
       if (!sensor.available) {
         statusMessage.textContent = '센서 이벤트가 수신되지 않습니다. 기기 설정을 확인하세요.';
       }
@@ -159,13 +195,15 @@ btnPermission.addEventListener('click', async () => {
 
     const joinResult = await controllerSocket.joinOrResume(inviteToken);
     if (!joinResult.ok) {
-      statusMessage.textContent =
+      setState(
+        'error',
         joinResult.error === 'controller_busy'
           ? '이미 다른 폰이 연결되어 있습니다. 운영자에게 교체를 요청하세요.'
-          : '연결 정보가 올바르지 않습니다. QR을 다시 스캔하세요.';
+          : '연결 정보가 올바르지 않습니다. QR을 다시 스캔하세요.',
+      );
       return;
     }
-    statusMessage.textContent = '연결됨. 정면을 향한 뒤 운영자의 보정을 기다리세요.';
+    setState('live', '연결됨. 정면을 향한 뒤 운영자의 보정을 기다리세요.');
     startSendLoop();
     setInterval(sendStatus, 500);
   } finally {

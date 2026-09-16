@@ -1,8 +1,20 @@
+:root {
+  --suit-red: #c1121f;
+  --suit-red-dp: #7d0a12;
+  --suit-red-hi: #e02a33;
+  --web-ink: #12070a;
+  --dev: #15171c;
+  --dev-hi: #272c35;
+  --line: #f2f4f8;
+  --red-hot: #ff4a3d;
+  --led-ok: #4fe0a8;
+}
+
 html,
 body {
   margin: 0;
   height: 100%;
-  background: #0b0b12;
+  background: var(--suit-red-dp);
   color: #eee;
   font-family: system-ui, sans-serif;
   touch-action: none;
@@ -10,42 +22,417 @@ body {
 }
 
 #app {
+  position: relative;
   height: 100vh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  padding: 12px;
-}
-
-#status-message {
-  min-height: 3em;
-}
-
-#btn-permission {
-  padding: 12px;
-  font-size: 16px;
-  margin-bottom: 12px;
-}
-
-#touch-area {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  background: #22223a;
-  border-radius: 12px;
-  touch-action: none;
   user-select: none;
-  font-size: 20px;
+  -webkit-user-select: none;
+  background: radial-gradient(
+    115% 62% at 50% -8%,
+    var(--suit-red-hi) 0%,
+    var(--suit-red) 45%,
+    var(--suit-red-dp) 100%
+  );
 }
 
-#touch-area[data-pressed='true'] {
-  background: #f92672;
+/* 화면에 글자를 두지 않으므로 상태 문구는 시각적으로만 숨긴다. */
+#status-message {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
-label {
-  margin-top: 12px;
+/* ---------- 슈트 표면 ---------- */
+#suit-web {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+#suit-web path {
+  fill: none;
+  stroke: var(--web-ink);
+  stroke-linecap: round;
+}
+
+#suit-web .spoke {
+  stroke-width: 1.5;
+  opacity: 0.85;
+}
+
+#suit-web .ring {
+  stroke-width: 1.1;
+  opacity: 0.66;
+}
+
+.suit-hex {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: multiply;
+  background-image:
+    linear-gradient(60deg, #00000022 1px, transparent 1px),
+    linear-gradient(-60deg, #00000022 1px, transparent 1px),
+    linear-gradient(0deg, #00000018 1px, transparent 1px);
+  background-size: 13px 22px;
+}
+
+.suit-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(130% 80% at 50% 12%, transparent 45%, #3d060c66 100%);
+}
+
+/* ---------- 상단 삼각 웹슈터(발사 버튼) ---------- */
+#touch-area {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  height: 41%;
+  touch-action: none;
+  filter: drop-shadow(0 12px 22px #2a03079e);
+}
+
+/* 위로 좁아지는 삼각 실루엣. 두 겹을 겹쳐 바깥층이 흰 테두리로 보이게 한다. */
+.shooter-plate,
+.shooter-face {
+  position: absolute;
+  clip-path: polygon(50% 0, 71% 11%, 100% 64%, 94% 100%, 6% 100%, 0 64%, 29% 11%);
+}
+
+.shooter-plate {
+  inset: 0 7%;
+  background: linear-gradient(175deg, var(--line) 0%, #aeb6c4 38%, #545c6b 100%);
+}
+
+.shooter-face {
+  inset: 3px;
+  background: linear-gradient(170deg, var(--dev-hi) 0%, var(--dev) 46%, #090b0e 100%);
+}
+
+.shooter-face::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.5;
+  background-image:
+    linear-gradient(60deg, #ffffff0e 1px, transparent 1px),
+    linear-gradient(-60deg, #ffffff0e 1px, transparent 1px);
+  background-size: 14px 24px;
+}
+
+.chev {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.chev path {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  opacity: 0.9;
+  transition: stroke 0.12s;
+}
+
+.nozzle {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 34px;
+  height: 12px;
+  border-radius: 0 0 6px 6px;
+  background: linear-gradient(#0a0c10, #1c2028);
+  box-shadow:
+    inset 0 -2px 3px #000,
+    0 0 0 1.5px #8c95a5;
+}
+
+.nozzle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 3px;
+  transform: translateX(-50%);
+  width: 18px;
+  height: 4px;
+  border-radius: 2px;
+  background: #04050a;
+  box-shadow: inset 0 1px 2px #000;
+  transition:
+    background 0.1s,
+    box-shadow 0.1s;
+}
+
+.trigger {
+  position: absolute;
+  left: 50%;
+  top: 58%;
+  transform: translate(-50%, -50%);
+  width: 46%;
+  height: 34%;
+  border-radius: 14px;
+  background: linear-gradient(170deg, #343a45, #12151a 70%);
+  box-shadow:
+    inset 0 0 0 1.5px #626b7b,
+    inset 0 8px 16px #00000080,
+    0 3px 6px #0009;
+  display: grid;
+  place-items: center;
+  transition:
+    transform 0.08s,
+    box-shadow 0.12s,
+    background 0.12s;
+}
+
+/* 그립 홈 */
+.trigger::before {
+  content: '';
+  position: absolute;
+  inset: 22% 18%;
+  background: repeating-linear-gradient(90deg, #ffffff12 0 1px, transparent 1px 9px);
+}
+
+.trigger svg {
+  position: relative;
+  width: 34px;
+  height: 34px;
+}
+
+.spider-body {
+  fill: #aab2c0;
+  transition: fill 0.12s;
+}
+
+.spider-legs {
+  stroke: #aab2c0;
+  transition: stroke 0.12s;
+}
+
+.strand {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  width: 70px;
+  height: 14px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.strand line {
+  stroke: #fff;
+  stroke-width: 2;
+  stroke-dasharray: 5 6;
+}
+
+@keyframes strand-shoot {
+  to {
+    stroke-dashoffset: -22;
+  }
+}
+
+/* ---------- 눌림 ---------- */
+#app[data-pressed='true'] .trigger {
+  transform: translate(-50%, -50%) scale(0.97);
+  background: linear-gradient(170deg, #7e1219, #2a0a0d 72%);
+  box-shadow:
+    inset 0 0 0 1.5px var(--red-hot),
+    inset 0 8px 18px #000,
+    0 0 26px #ff4a3d55;
+}
+
+#app[data-pressed='true'] .spider-body {
+  fill: var(--red-hot);
+}
+
+#app[data-pressed='true'] .spider-legs {
+  stroke: var(--red-hot);
+}
+
+#app[data-pressed='true'] .nozzle::after {
+  background: var(--line);
+  box-shadow: 0 0 12px 3px #ffffffcc;
+}
+
+#app[data-pressed='true'] .chev path {
+  stroke: var(--red-hot);
+  opacity: 1;
+}
+
+#app[data-pressed='true'] .strand {
+  opacity: 1;
+}
+
+#app[data-pressed='true'] .strand line {
+  animation: strand-shoot 0.45s linear infinite;
+}
+
+/* ---------- 하단 상태 ---------- */
+.footer {
+  position: relative;
+  z-index: 2;
+  margin-top: auto;
+  flex: none;
+  padding: 0 16px 22px;
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+}
+
+.leds {
+  display: flex;
+  gap: 14px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: #1a060a88;
+  box-shadow: inset 0 0 0 1px #00000055;
+}
+
+.led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3a1116;
+  box-shadow: inset 0 0 0 1px #00000070;
+}
+
+.led.on {
+  background: var(--led-ok);
+  box-shadow: 0 0 9px 1px #4fe0a880;
+}
+
+.led.fire {
+  background: var(--red-hot);
+  box-shadow: 0 0 9px 1px #ff4a3daa;
+}
+
+.led.err {
+  background: var(--red-hot);
+  box-shadow: 0 0 9px 1px #ff4a3daa;
+  animation: led-blink 0.55s steps(1) infinite;
+}
+
+@keyframes led-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+#rate-control {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  height: 16px;
+  padding: 6px;
+}
+
+#rate-control i {
+  display: block;
+  width: 5px;
+  background: #4c1015;
+  border-radius: 1px;
+  box-shadow: inset 0 0 0 1px #00000040;
+}
+
+#rate-control i:nth-child(1) {
+  height: 7px;
+}
+
+#rate-control i:nth-child(2) {
+  height: 11px;
+}
+
+#rate-control i:nth-child(3) {
+  height: 16px;
+}
+
+#rate-control[data-level='1'] i:nth-child(-n + 1),
+#rate-control[data-level='2'] i:nth-child(-n + 2),
+#rate-control[data-level='3'] i:nth-child(-n + 3) {
+  background: var(--line);
+}
+
+/* ---------- 시작·오류 오버레이 ---------- */
+#btn-permission {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  border: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  /* 검은 엠블럼이 읽히도록 가운데를 밝게 남긴다. */
+  background: radial-gradient(circle at 50% 48%, #a8101ce0 0%, #2a040aee 78%);
+  cursor: pointer;
+}
+
+#btn-permission svg {
+  width: 44%;
+  max-width: 220px;
+}
+
+#btn-permission .spider-body {
+  fill: var(--web-ink);
+}
+
+#btn-permission .spider-legs {
+  stroke: var(--web-ink);
+}
+
+#btn-permission .deny-slash {
+  stroke: transparent;
+}
+
+@keyframes emblem-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.07);
+    opacity: 1;
+  }
+}
+
+#app[data-state='idle'] #btn-permission svg {
+  animation: emblem-pulse 1.9s ease-in-out infinite;
+}
+
+/* 연결되면 오버레이를 걷어내고 슈터만 남긴다. */
+#app[data-state='live'] #btn-permission {
+  display: none;
+}
+
+#app[data-state='error'] #btn-permission .spider-body {
+  fill: var(--red-hot);
+}
+
+#app[data-state='error'] #btn-permission .spider-legs,
+#app[data-state='error'] #btn-permission .deny-slash {
+  stroke: var(--red-hot);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+  }
 }
