@@ -104,7 +104,7 @@ export const gameConfig = {
     // 대양AI센터는 바닥 폭이 48m라 구간 길이 60m를 넘지 않는 1.25가 상한이다.
     // 광개토관도 도로를 따라가는 폭이 48m라 상한이 1.25다. 높이 62m가 이미 주변 건물보다
     // 높아 배율은 1.2로 둔다.
-    landmarkScale: { aejiheon: 1.6, 'daeyang-ai': 1.25, gwanggaeto: 1.2 },
+    landmarkScale: { aejiheon: 1.6, 'daeyang-ai': 1.25, gwanggaeto: 1.2, naver: 1 },
   },
 
   // 점수·정체 (PRD 5절 제안 초기값)

@@ -37,7 +37,7 @@ it('드문 간격으로 좌우를 교대하고 탑 정면은 항상 도로를 �
     expect(chunk).toEqual(buildChunk(index));
     const { side, position } = chunk.landmark;
     expect(chunk.landmark.kind).toBe(
-      ['aejiheon', 'daeyang-ai', 'gwanggaeto'][(indices.length - 1) % 3],
+      ['aejiheon', 'daeyang-ai', 'gwanggaeto', 'naver'][(indices.length - 1) % 4],
     );
     const front = new THREE.Vector3(0, 0, 1).applyAxisAngle(
       new THREE.Vector3(0, 1, 0),
@@ -84,4 +84,31 @@ it('랜드마크 구간을 회수·재생성해도 모델 자원을 재사용한
   expect(second.geometry).toBe(geometry);
   expect(second.material).toBe(material);
   chunks.remove(2);
+});
+
+it('네이버 사옥이 게임에 생성되고 유리 외벽에 거미줄이 맞으며 구간 회수 시 제거된다', async () => {
+  const chunk = buildChunk(14);
+  expect(chunk.landmark?.kind).toBe('naver');
+  const scene = new THREE.Scene();
+  const chunks = createChunkMeshes(scene);
+  const physics = await PhysicsWorld.create();
+  try {
+    chunks.add(chunk);
+    const model = scene.getObjectByName('NAVER Green Factory')!;
+    expect(model).toBeDefined();
+    const { position, side } = chunk.landmark!;
+    expect(model.position.toArray()).toEqual(position);
+    physics.addChunk(chunk.index, chunk.road, landmarkColliders(chunk.landmark!));
+    physics.createPlayer([0, 35, position[2]]);
+    physics.step();
+    const hit = physics.raycastBuilding([0, 35, position[2]], [side, 0, 0], 70);
+    expect(hit?.point[0]).toBeCloseTo(position[0] - side * 11);
+    expect(physics.raycastBuilding([0, 90, position[2]], [side, 0, 0], 70)).toBeNull();
+    chunks.remove(chunk.index);
+    physics.removeChunk(chunk.index);
+    expect(scene.getObjectByName('NAVER Green Factory')).toBeUndefined();
+    expect(physics.raycastBuilding([0, 35, position[2]], [side, 0, 0], 70)).toBeNull();
+  } finally {
+    physics.dispose();
+  }
 });

@@ -1,7 +1,7 @@
 import type { BoxSpec, Vec3 } from '../physics';
 
 export type LandmarkPlacement = {
-  kind: 'aejiheon' | 'daeyang-ai' | 'gwanggaeto';
+  kind: 'aejiheon' | 'daeyang-ai' | 'gwanggaeto' | 'naver';
   scale: number;
   position: Vec3;
   side: -1 | 1;
@@ -11,6 +11,7 @@ export type LandmarkPlacement = {
 export const AEJIHEON_BOUNDS = { minX: -4.8, maxX: 15.3, minZ: -24.5, maxZ: 4.8 };
 export const DAEYANG_AI_BOUNDS = { minX: -24, maxX: 24, minZ: -19, maxZ: 23 };
 export const GWANGGAETO_BOUNDS = { minX: -23, maxX: 25, minZ: -35, maxZ: 14 };
+export const NAVER_BOUNDS = { minX: -20, maxX: 20, minZ: -13, maxZ: 15 };
 
 // 기존 물리의 상자 충돌체를 사용한다. 몰딩·아치·경사 지붕은 단순화하되
 // 낮은 예배당 위에 탑 높이의 보이지 않는 벽을 만들지 않는다.
@@ -57,6 +58,12 @@ const boxesByKind = {
   aejiheon: localBoxes,
   'daeyang-ai': aiBoxes,
   gwanggaeto: gwanggaetoBoxes,
+  naver: [
+    { center: [0, 0.2, 1], halfExtents: [20, 0.2, 14] },
+    { center: [0, 3.2, 0], halfExtents: [18, 2.8, 11.5] },
+    { center: [0, 42.5, 0], halfExtents: [18, 36.5, 11] },
+    { center: [2, 80.25, -3], halfExtents: [6, 0.9, 3.5] },
+  ] as BoxSpec[],
 };
 
 export function landmarkColliders({ position, side, scale, kind }: LandmarkPlacement): BoxSpec[] {

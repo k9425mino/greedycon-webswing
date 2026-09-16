@@ -5,6 +5,7 @@ import type { BoxSpec, Vec3 } from './physics';
 import { createAejiheon } from './models/aejiheon';
 import { createDaeyangAi } from './models/daeyangAi';
 import { createGwanggaeto } from './models/gwanggaeto';
+import { createNaver } from './models/naver';
 import { createDeformableWebSilk } from './models/webSilk';
 
 export function createScene(canvas: HTMLCanvasElement) {
@@ -261,6 +262,7 @@ const LANDMARK_FACTORIES = {
   aejiheon: createAejiheon,
   'daeyang-ai': createDaeyangAi,
   gwanggaeto: createGwanggaeto,
+  naver: createNaver,
 };
 
 function boxMesh(spec: BoxSpec, material: THREE.Material): THREE.Mesh {

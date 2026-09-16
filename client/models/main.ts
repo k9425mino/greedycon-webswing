@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createAejiheon } from '../host/models/aejiheon';
 import { createDaeyangAi } from '../host/models/daeyangAi';
 import { createGwanggaeto } from '../host/models/gwanggaeto';
+import { createNaver } from '../host/models/naver';
 import { createWebSilk } from '../host/models/webSilk';
 
 type View = { position: [number, number, number]; target: [number, number, number] };
@@ -19,6 +20,17 @@ type Preset = {
 };
 
 const presets: Record<string, Preset> = {
+  naver: {
+    title: '네이버 사옥',
+    eyebrow: 'NAVER / GREEN FACTORY',
+    description: '녹색 유리 격자, 촘촘한 수직 차양과 흰색 NAVER 로고.',
+    detailLabel: '외벽·로고',
+    narrowFov: 65,
+    create: createNaver,
+    overview: { position: [-92, 62, 128], target: [0, 39, 0] },
+    front: { position: [0, 42, 160], target: [0, 40, 0] },
+    detail: { position: [-33, 76, 49], target: [-6, 69, 0] },
+  },
   web: {
     title: '거미줄',
     eyebrow: 'WEB SILK / MATERIAL STUDY',
