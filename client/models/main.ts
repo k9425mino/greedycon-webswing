@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createAejiheon } from '../host/models/aejiheon';
 import { createDaeyangAi } from '../host/models/daeyangAi';
 import { createGwanggaeto } from '../host/models/gwanggaeto';
+import { createWebSilk } from '../host/models/webSilk';
 
 type View = { position: [number, number, number]; target: [number, number, number] };
 type Preset = {
@@ -18,6 +19,17 @@ type Preset = {
 };
 
 const presets: Record<string, Preset> = {
+  web: {
+    title: '거미줄',
+    eyebrow: 'WEB SILK / MATERIAL STUDY',
+    description: '곧게 모인 섬유, 느슨하게 감긴 잔실, 끝에서 펼쳐지는 접착망.',
+    detailLabel: '섬유 확대',
+    narrowFov: 65,
+    create: createWebSilk,
+    overview: { position: [-9, 15, 42], target: [0, 5, 0] },
+    front: { position: [-22, 6.6, 2.5], target: [6, 5, 0] },
+    detail: { position: [-4, 7, 6], target: [-2, 4.7, 0] },
+  },
   aejiheon: {
     title: '애지헌과 대양타워',
     eyebrow: 'SEJONG UNIVERSITY / LANDMARK 01',
@@ -55,7 +67,14 @@ const presets: Record<string, Preset> = {
 
 const preset =
   presets[new URLSearchParams(location.search).get('model') ?? ''] ?? presets.aejiheon!;
-document.title = `${preset.title} · 건물 미리보기`;
+const isWeb = preset === presets.web;
+document.body.classList.toggle('web-preview', isWeb);
+document.title = `${preset.title} · 모델 미리보기`;
+if (isWeb) {
+  document.querySelector('#front')!.textContent = '길이 방향';
+  document.querySelector('.note')!.textContent =
+    '참고 이미지 기반 3D 모델 · 게임과 동일한 섬유·접착망';
+}
 document.querySelector('h1')!.textContent = preset.title;
 document.querySelector('header p')!.textContent = preset.description;
 document.querySelector('.eyebrow')!.textContent = preset.eyebrow;
@@ -72,13 +91,13 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.3;
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xe9e8e2);
+scene.background = new THREE.Color(isWeb ? 0x10151d : 0xe9e8e2);
 const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 500);
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
-controls.minDistance = 8;
+controls.minDistance = isWeb ? 1 : 8;
 controls.maxDistance = 220;
-controls.maxPolarAngle = Math.PI / 2 - 0.02;
+controls.maxPolarAngle = isWeb ? Math.PI : Math.PI / 2 - 0.02;
 controls.autoRotateSpeed = 0.5;
 scene.add(new THREE.HemisphereLight(0xe7f1ff, 0x8d826b, 2));
 const sun = new THREE.DirectionalLight(0xffefcf, 3);
@@ -88,6 +107,11 @@ sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 75, bottom: -60, far: 200 });
 sun.shadow.normalBias = 0.04;
 scene.add(sun);
+if (isWeb) {
+  const rim = new THREE.DirectionalLight(0xb8d6ff, 2.5);
+  rim.position.set(5, 8, -12);
+  scene.add(rim);
+}
 scene.add(preset.create());
 const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(2000, 2000),
@@ -96,7 +120,7 @@ const ground = new THREE.Mesh(
 ground.rotation.x = -Math.PI / 2;
 ground.position.y = -0.03;
 ground.receiveShadow = true;
-scene.add(ground);
+if (!isWeb) scene.add(ground);
 
 function view({ position, target }: View) {
   camera.position.set(...position);

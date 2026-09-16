@@ -89,6 +89,24 @@
         outline: 3px solid #a88340;
         outline-offset: 3px;
       }
+      .web-preview {
+        background: #10151d;
+        color: #edf1f5;
+      }
+      .web-preview .eyebrow,
+      .web-preview .note,
+      .web-preview .model-links a {
+        color: #a5b5c8;
+      }
+      .web-preview button {
+        background: #1d2937;
+        border-color: #445366;
+        color: #edf1f5;
+      }
+      .web-preview button:hover,
+      .web-preview button[aria-pressed='true'] {
+        background: #3b536d;
+      }
       @media (max-width: 600px) {
         header {
           top: 20px;
@@ -112,9 +130,9 @@
       <div class="eyebrow">SEJONG UNIVERSITY / LANDMARK 01</div>
       <h1>애지헌과 대양타워</h1>
       <p>석재의 수직선, 아치와 붉은 지붕.</p>
-      <nav class="model-links" aria-label="건물 선택">
+      <nav class="model-links" aria-label="모델 선택">
         <a href="/models/">애지헌·대양타워</a><a href="/models/?model=daeyang-ai">대양AI센터</a
-        ><a href="/models/?model=gwanggaeto">광개토관</a>
+        ><a href="/models/?model=gwanggaeto">광개토관</a><a href="/models/?model=web">거미줄</a>
       </nav>
     </header>
     <canvas aria-label="애지헌 예배당과 대양타워의 회전 가능한 3D 모델"></canvas>

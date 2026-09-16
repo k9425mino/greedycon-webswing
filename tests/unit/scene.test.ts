@@ -63,7 +63,7 @@ it('거미줄이 없거나 다 흐려지면 그리지 않는다', () => {
   expect(strand.group.visible).toBe(false);
 });
 
-it('외곽선은 심보다 굵어 만화풍 테두리로 보인다', () => {
+it('섬유 모델은 경로 변경 시 메시를 재사용하고 비행 중 접착망을 숨긴다', () => {
   const strand = createWebStrand(new THREE.Scene());
   updateWebStrand(
     strand,
@@ -74,14 +74,28 @@ it('외곽선은 심보다 굵어 만화풍 테두리로 보인다', () => {
     [0, 0, 0],
     1,
   );
-  strand.core.geometry.computeBoundingBox();
-  strand.outline.geometry.computeBoundingBox();
-  const core = new THREE.Vector3();
-  const outline = new THREE.Vector3();
-  strand.core.geometry.boundingBox!.getSize(core);
-  strand.outline.geometry.boundingBox!.getSize(outline);
-  expect(outline.x).toBeGreaterThan(core.x);
-  expect((strand.outline.material as THREE.MeshBasicMaterial).side).toBe(THREE.DoubleSide);
+  const geometry = strand.core.geometry;
+  const positions = geometry.getAttribute('position');
+  const normals = geometry.getAttribute('normal');
+  expect(Array.from(positions.array).every(Number.isFinite)).toBe(true);
+  for (let i = 0; i < normals.count; i += 31) {
+    expect(new THREE.Vector3().fromBufferAttribute(normals, i).length()).toBeCloseTo(1);
+  }
+  expect(strand.core.material).toBeInstanceOf(THREE.MeshPhysicalMaterial);
+  expect(strand.silk.attachment.visible).toBe(true);
+  updateWebStrand(
+    strand,
+    [
+      [0, 0, 0],
+      [2, 6, -30],
+    ],
+    [0, 0, 0],
+    0.4,
+    true,
+  );
+  expect(strand.core.geometry).toBe(geometry);
+  expect(strand.silk.attachment.visible).toBe(false);
+  expect((strand.core.material as THREE.MeshPhysicalMaterial).opacity).toBe(0.4);
 });
 
 it('이동한 거미줄이 카메라 안에 있으면 이전 위치의 경계 때문에 숨겨지지 않는다', () => {
