@@ -39,12 +39,7 @@ import {
   updateWebSplat,
   updateWebStrand,
 } from './scene';
-import {
-  groundWarningStrength,
-  initialCameraFeel,
-  speedRatioFor,
-  updateCameraFeel,
-} from './cameraFeel';
+import { initialCameraFeel, speedRatioFor, updateCameraFeel } from './cameraFeel';
 import { isMouseInputEnabled, MouseAimInput } from './mouseInput';
 import { PhysicsWorld, type Vec3 } from './physics';
 import { ChunkedWorld, chunkIndexForZ, chunkBuildingColliders } from './world';
@@ -70,7 +65,6 @@ const hudStallLeft = document.getElementById('hud-stall-left') as HTMLElement;
 const hudWebStatus = document.getElementById('hud-web-status') as HTMLElement;
 const hudNearGround = document.getElementById('hud-near-ground') as HTMLElement;
 const hudNearBonus = document.getElementById('hud-near-bonus') as HTMLElement;
-const groundVignette = document.getElementById('ground-vignette') as HTMLElement;
 const btnCalibrate = document.getElementById('btn-calibrate') as HTMLButtonElement;
 const btnStart = document.getElementById('btn-start') as HTMLButtonElement;
 const btnMute = document.getElementById('btn-mute') as HTMLButtonElement;
@@ -648,12 +642,9 @@ function frameLoop(nowMs: number) {
     playerMesh.position.set(...renderPos);
     updateCameraPosition(sceneHandle.camera, renderPos, cameraFeel);
 
-    // 속도선과 지면 경고는 플레이 중에만 보인다.
+    // 속도선은 플레이 중에만 보인다.
     const speedRatio = phase === 'playing' ? speedRatioFor(playerSpeed ?? 0) : 0;
     updateSpeedLines(speedLines, renderPos, speedRatio, dtSec, playerSpeed ?? 0);
-    groundVignette.style.opacity = String(
-      phase === 'playing' ? groundWarningStrength(renderPos[1]) : 0,
-    );
     updateWebStrand(
       ropeStrand,
       attachedPoint ? saggedPath(renderPos, attachedPoint) : null,

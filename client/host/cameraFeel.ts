@@ -25,8 +25,8 @@ export function speedRatioFor(speedMs: number): number {
   return Math.max(0, Math.min(1, (speedMs - slowMs) / (fastMs - slowMs)));
 }
 
-// 지면에 얼마나 가까운지를 0~1로 옮긴다. 흔들림과 화면 가장자리 경고가 같은 기준을 쓴다.
-export function groundWarningStrength(altitudeM: number): number {
+// 지면에 얼마나 가까운지를 0~1로 옮긴다. 지면 근접 흔들림의 세기 기준이다.
+function groundNearness(altitudeM: number): number {
   const { groundShakeStartM } = gameConfig.camera;
   return Math.max(0, Math.min(1, (groundShakeStartM - altitudeM) / groundShakeStartM));
 }
@@ -66,7 +66,7 @@ export function updateCameraFeel(state: CameraFeelState, input: CameraFeelInput)
 
   // 빠를수록, 지면에 가까울수록 크게 흔들린다. 지면 근접은 아슬아슬함을 몸으로 알려 준다.
   const speedShake = camera.maxSpeedShakeM * speedRatio;
-  const groundShake = camera.maxGroundShakeM * groundWarningStrength(input.altitudeM);
+  const groundShake = camera.maxGroundShakeM * groundNearness(input.altitudeM);
   const kick =
     input.attachElapsedMs === null || input.attachElapsedMs > camera.attachKickDurationMs
       ? 0

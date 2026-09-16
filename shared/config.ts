@@ -30,12 +30,13 @@ export const gameConfig = {
     maxRollDeg: 14,
     rollAnchorOffsetM: 16,
     rollSmoothingPerSec: 5,
-    // 흔들림. 속도분과 지면 근접분을 더한다.
-    maxSpeedShakeM: 0.12,
+    // 흔들림. 속도분과 지면 근접분을 더한다. 첫 값(0.12/0.22/0.45)은 실제로 보니 너무 세서
+    // 사용자 요청으로 85% 줄였다.
+    maxSpeedShakeM: 0.018,
     groundShakeStartM: 14,
-    maxGroundShakeM: 0.22,
+    maxGroundShakeM: 0.033,
     // 부착 순간의 짧은 충격.
-    attachKickM: 0.45,
+    attachKickM: 0.07,
     attachKickDurationMs: 180,
     // 스쳐 지나가는 속도선. 숫자 말고 화면으로 속도를 알려 준다.
     speedLineCount: 90,

@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { gameConfig } from '../../shared/config';
-import {
-  groundWarningStrength,
-  initialCameraFeel,
-  speedRatioFor,
-  updateCameraFeel,
-} from '../../client/host/cameraFeel';
+import { initialCameraFeel, speedRatioFor, updateCameraFeel } from '../../client/host/cameraFeel';
 
 const HIGH_ALTITUDE_M = gameConfig.camera.groundShakeStartM + 20;
 
@@ -59,12 +54,14 @@ describe('카메라 연출', () => {
     expect(released.rollRad).toBeCloseTo(0, 3);
   });
 
-  it('지면에 가까울수록 크게 흔들린다', () => {
+  it('지면에 가까울수록 크게 흔들리고 높은 곳에서는 흔들리지 않는다', () => {
     const high = settle({ speedMs: slowMs, altitudeM: HIGH_ALTITUDE_M });
     const low = settle({ speedMs: slowMs, altitudeM: 2 });
+    const lower = settle({ speedMs: slowMs, altitudeM: 0 });
 
-    expect(Math.hypot(...high.shakeM)).toBeLessThan(0.01);
-    expect(Math.hypot(...low.shakeM)).toBeGreaterThan(0.05);
+    expect(Math.hypot(...high.shakeM)).toBe(0);
+    expect(Math.hypot(...low.shakeM)).toBeGreaterThan(0);
+    expect(Math.hypot(...lower.shakeM)).toBeGreaterThan(Math.hypot(...low.shakeM));
   });
 
   it('부착 직후에만 충격이 더해진다', () => {
@@ -74,14 +71,18 @@ describe('카메라 연출', () => {
       attachElapsedMs: gameConfig.camera.attachKickDurationMs + 1,
     });
 
-    expect(Math.hypot(...kicked.shakeM)).toBeGreaterThan(0.05);
-    expect(Math.hypot(...settled.shakeM)).toBeLessThan(0.01);
+    expect(Math.hypot(...kicked.shakeM)).toBeGreaterThan(0);
+    expect(Math.hypot(...settled.shakeM)).toBe(0);
   });
 
-  it('속도·지면 근접 비율은 0~1로 잘린다', () => {
+  // 2026-09-17 사용자 요청으로 85% 줄였다. 줄이기 전 최악은 약 1.1m였다.
+  it('가장 심한 경우에도 흔들림 폭이 20cm를 넘지 않는다', () => {
+    const worst = settle({ speedMs: fastMs * 2, altitudeM: 0, attachElapsedMs: 0 });
+    expect(Math.hypot(...worst.shakeM)).toBeLessThan(0.2);
+  });
+
+  it('속도 비율은 0~1로 잘린다', () => {
     expect(speedRatioFor(slowMs - 10)).toBe(0);
     expect(speedRatioFor(fastMs + 10)).toBe(1);
-    expect(groundWarningStrength(HIGH_ALTITUDE_M)).toBe(0);
-    expect(groundWarningStrength(-5)).toBe(1);
   });
 });
