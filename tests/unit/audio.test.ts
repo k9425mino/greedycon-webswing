@@ -38,7 +38,6 @@ function audioFixture() {
       return osc;
     }),
     createGain: vi.fn(node),
-    createBiquadFilter: vi.fn(node),
     resume: vi.fn(() => Promise.resolve()),
     close: vi.fn(() => Promise.resolve()),
   };
@@ -54,26 +53,13 @@ function audioFixture() {
 
 afterEach(() => vi.unstubAllGlobals());
 
-it('음소거 해제는 요청 중인 바람만 복구하고 중복 시작하지 않는다', () => {
-  const { player, oscillators } = audioFixture();
-  player.startWind();
-  player.startWind();
-  expect(oscillators).toHaveLength(1);
-  player.setMuted(true);
-  player.setMuted(false);
-  expect(oscillators).toHaveLength(2);
-  player.stopAll();
-  player.setMuted(true);
-  player.setMuted(false);
-  expect(oscillators).toHaveLength(2);
-});
-
-it('음소거 상태에서 시작한 게임도 음소거를 풀면 바람이 시작된다', () => {
+it('음소거 중에는 효과음을 만들지 않는다', () => {
   const { player, oscillators } = audioFixture();
   player.setMuted(true);
-  player.startWind();
+  player.playFire();
   expect(oscillators).toHaveLength(0);
   player.setMuted(false);
+  player.playFire();
   expect(oscillators).toHaveLength(1);
 });
 
@@ -82,8 +68,7 @@ it('자연 종료한 효과음과 반복 정리한 음원의 연결을 해제한
   player.playFire();
   oscillators[0]!.onended?.();
   expect(nodes.every((node) => node.disconnect.mock.calls.length === 1)).toBe(true);
-  player.startWind();
-  player.playAttach();
+  player.playMiss();
   player.stopAll();
   player.stopAll();
   expect(nodes.every((node) => node.disconnect.mock.calls.length === 1)).toBe(true);
@@ -98,8 +83,7 @@ it('부분 생성 실패가 게임 호출부로 전파되지 않고 자원을 �
   expect(nodes[0]!.disconnect).toHaveBeenCalledOnce();
   expect(player.available).toBe(false);
   expect(() => {
-    player.startWind();
-    player.playAttach();
+    player.playMiss();
     player.dispose();
   }).not.toThrow();
 });
@@ -113,7 +97,6 @@ it('resume 실패와 dispose 이후의 호출도 게임 진행을 막지 않는�
   player.dispose();
   expect(() => {
     player.playFire();
-    player.startWind();
     player.dispose();
   }).not.toThrow();
   expect(ctx.close).toHaveBeenCalledOnce();

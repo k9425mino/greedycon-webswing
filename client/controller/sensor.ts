@@ -66,19 +66,16 @@ export class SensorTracker {
     return this.latest;
   }
 
-  start(onEvent?: () => void): void {
+  start(): void {
     if (this.listening) return;
     this.listening = true;
     window.addEventListener('deviceorientation', this.handleEvent);
-    if (onEvent) this.onEvent = onEvent;
   }
 
   stop(): void {
     this.listening = false;
     window.removeEventListener('deviceorientation', this.handleEvent);
   }
-
-  private onEvent: (() => void) | undefined;
 
   private handleEvent = (event: DeviceOrientationEvent): void => {
     if (
@@ -92,6 +89,5 @@ export class SensorTracker {
     const screenAngle = window.screen.orientation?.angle ?? 0;
     this.latest = applyScreenOrientation(deviceQuaternion, screenAngle);
     this.lastEventAt = performance.now();
-    this.onEvent?.();
   };
 }

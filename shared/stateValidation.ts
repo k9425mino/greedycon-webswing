@@ -31,14 +31,5 @@ export function isValidHostState(value: unknown): value is HostState {
 export function isValidControllerStatus(value: unknown): value is ControllerStatus {
   if (typeof value !== 'object' || value === null) return false;
   const status = value as Record<string, unknown>;
-  return (
-    typeof status.sensorAvailable === 'boolean' &&
-    typeof status.pageVisible === 'boolean' &&
-    typeof status.sensorHz === 'number' &&
-    Number.isFinite(status.sensorHz) &&
-    status.sensorHz >= 0 &&
-    typeof status.sendHz === 'number' &&
-    Number.isFinite(status.sendHz) &&
-    status.sendHz >= 0
-  );
+  return typeof status.sensorAvailable === 'boolean' && typeof status.pageVisible === 'boolean';
 }

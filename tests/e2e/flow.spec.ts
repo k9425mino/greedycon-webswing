@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { io } from 'socket.io-client';
+import { expectHostState, expectPhase, installHostProbe, readHostState } from './hostProbe';
 
 async function mockOrientationPermission(page: Page, result: 'granted' | 'denied' | 'missing') {
   await page.addInitScript((mockResult) => {
@@ -119,6 +120,7 @@ test('연결부터 입력 표시, 두 번째 컨트롤러 거절까지', async (
   test.setTimeout(90_000);
   const hostContext = await browser.newContext();
   const hostPage = await hostContext.newPage();
+  await installHostProbe(hostPage);
   await hostPage.goto('/');
 
   await expect(hostPage.locator('#invite-link')).toHaveAttribute('href', /.+/, { timeout: 5000 });
@@ -133,8 +135,11 @@ test('연결부터 입력 표시, 두 번째 컨트롤러 거절까지', async (
   await controllerPage.waitForTimeout(100);
   await dispatchOrientation(controllerPage, 10, 5, 0);
 
-  await expect(hostPage.locator('#status-connection')).toHaveText('연결됨', { timeout: 5000 });
-  await expect(hostPage.locator('#status-sensor')).toHaveText('정상', { timeout: 5000 });
+  await expectHostState(
+    hostPage,
+    { controllerConnected: true, sensorAvailable: true },
+    { timeout: 5000 },
+  );
 
   // 터치 유지 -> 호스트 크로스헤어가 눌림으로 반영된다.
   const touchArea = controllerPage.locator('#touch-area');
@@ -151,7 +156,7 @@ test('연결부터 입력 표시, 두 번째 컨트롤러 거절까지', async (
 
   // 정면 보정: 터치가 해제된 상태에서만 가능하다.
   await hostPage.click('#btn-calibrate');
-  await expect(hostPage.locator('#status-phase')).toHaveText('ready', { timeout: 5000 });
+  await expectPhase(hostPage, 'ready', { timeout: 5000 });
 
   // 두 번째 컨트롤러는 거절된다(OP-01).
   const secondControllerContext = await browser.newContext();
@@ -167,31 +172,31 @@ test('연결부터 입력 표시, 두 번째 컨트롤러 거절까지', async (
 
   // 연결 중단: 컨트롤러를 닫으면 호스트는 pairing으로 돌아간다.
   await hostPage.click('#btn-start');
-  await expect(hostPage.locator('#status-phase')).toHaveText('playing');
+  await expectPhase(hostPage, 'playing');
   await controllerContext.setOffline(true);
-  await expect(hostPage.locator('#status-phase')).not.toHaveText('playing');
+  await expect.poll(() => readHostState(hostPage)).not.toMatchObject({ phase: 'playing' });
   await controllerContext.setOffline(false);
-  await expect(hostPage.locator('#status-phase')).toHaveText('calibrating', { timeout: 15000 });
+  await expectPhase(hostPage, 'calibrating', { timeout: 15000 });
   await hostPage.click('#btn-calibrate');
-  await expect(hostPage.locator('#status-phase')).toHaveText('ready');
+  await expectPhase(hostPage, 'ready');
   await hostPage.reload();
-  await expect(hostPage.locator('#status-phase')).toHaveText('calibrating');
+  await expectPhase(hostPage, 'calibrating');
   await hostPage.click('#btn-calibrate');
-  await expect(hostPage.locator('#status-phase')).toHaveText('ready');
+  await expectPhase(hostPage, 'ready');
   await controllerPage.reload();
   await controllerPage.click('#btn-permission');
-  await expect(hostPage.locator('#status-phase')).toHaveText('calibrating');
+  await expectPhase(hostPage, 'calibrating');
   await hostPage.click('#btn-calibrate');
-  await expect(hostPage.locator('#status-phase')).toHaveText('ready');
+  await expectPhase(hostPage, 'ready');
   await hostContext.setOffline(true);
-  await expect(hostPage.locator('#status-connection')).toHaveText('대기중', { timeout: 45_000 });
+  await expectHostState(hostPage, { controllerConnected: false }, { timeout: 45_000 });
   await hostContext.setOffline(false);
-  await expect(hostPage.locator('#status-phase')).toHaveText('calibrating', { timeout: 15000 });
+  await expectPhase(hostPage, 'calibrating', { timeout: 15000 });
   await hostPage.click('#btn-calibrate');
-  await expect(hostPage.locator('#status-phase')).toHaveText('ready');
+  await expectPhase(hostPage, 'ready');
   await hostPage.click('#btn-start');
   await controllerContext.close();
-  await expect(hostPage.locator('#status-phase')).toHaveText('paused', { timeout: 5000 });
+  await expectPhase(hostPage, 'paused', { timeout: 5000 });
 
   await hostContext.close();
 });
@@ -234,6 +239,7 @@ test('컨트롤러 리다이렉트가 초대 토큰을 유지한다', async ({ p
 test('센서 권한 거부 시 안내를 표시한다', async ({ browser }) => {
   const hostContext = await browser.newContext();
   const hostPage = await hostContext.newPage();
+  await installHostProbe(hostPage);
   await hostPage.goto('/');
   await expect(hostPage.locator('#invite-link')).toHaveAttribute('href', /.+/, { timeout: 5000 });
   const inviteUrl = await hostPage.locator('#invite-link').getAttribute('href');

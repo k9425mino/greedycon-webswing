@@ -2,10 +2,6 @@
 export class SfxPlayer {
   private ctx: AudioContext | null = null;
   private muted = false;
-  private windRequested = false;
-  private windOsc: OscillatorNode | null = null;
-  private windGain: GainNode | null = null;
-  private windFilter: BiquadFilterNode | null = null;
   private voices = new Map<OscillatorNode, AudioNode[]>();
 
   constructor() {
@@ -32,7 +28,6 @@ export class SfxPlayer {
   setMuted(muted: boolean): void {
     this.muted = muted;
     if (muted) this.clearVoices();
-    else if (this.windRequested) this.startWind();
   }
 
   // 사용자 조작 안에서 호출한다. 정책에 의한 거절은 다음 조작에서 다시 시도한다.
@@ -80,9 +75,6 @@ export class SfxPlayer {
 
   private clearVoices(): void {
     for (const osc of this.voices.keys()) this.releaseVoice(osc);
-    this.windOsc = null;
-    this.windGain = null;
-    this.windFilter = null;
   }
 
   private tone(freq: number, durationSec: number, type: OscillatorType, peakGain: number): void {
@@ -106,10 +98,6 @@ export class SfxPlayer {
   playFire(): void {
     this.tone(920, 0.07, 'square', 0.12);
   }
-  playAttach(): void {
-    this.tone(520, 0.09, 'sine', 0.18);
-    this.tone(780, 0.09, 'sine', 0.1);
-  }
   playMiss(): void {
     this.tone(200, 0.1, 'triangle', 0.09);
   }
@@ -117,40 +105,7 @@ export class SfxPlayer {
     this.tone(260, 0.07, 'triangle', 0.1);
   }
 
-  startWind(): void {
-    this.windRequested = true;
-    if (this.muted || this.windOsc) return;
-    this.withAudio((ctx) => {
-      const osc = this.createVoice(ctx);
-      const filter = ctx.createBiquadFilter();
-      this.voices.get(osc)!.push(filter);
-      const gain = ctx.createGain();
-      this.voices.get(osc)!.push(gain);
-      osc.type = 'sawtooth';
-      osc.frequency.value = 60;
-      filter.type = 'lowpass';
-      filter.frequency.value = 300;
-      gain.gain.value = 0;
-      osc.connect(filter).connect(gain).connect(ctx.destination);
-      osc.start();
-      this.windOsc = osc;
-      this.windFilter = filter;
-      this.windGain = gain;
-    });
-  }
-
-  updateWind(speedMs: number): void {
-    this.withAudio((ctx) => {
-      if (!this.windGain || !this.windFilter) return;
-      const t = ctx.currentTime;
-      const clamped = Math.max(0, Math.min(30, speedMs));
-      this.windGain.gain.setTargetAtTime(Math.min(0.06, clamped / 350), t, 0.1);
-      this.windFilter.frequency.setTargetAtTime(250 + clamped * 18, t, 0.1);
-    });
-  }
-
   stopAll(): void {
-    this.windRequested = false;
     this.clearVoices();
   }
 

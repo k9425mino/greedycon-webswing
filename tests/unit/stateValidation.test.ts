@@ -26,18 +26,11 @@ describe('상태 메시지 검증', () => {
     expect(isValidHostState(state)).toBe(false);
   });
 
-  const status = { sensorAvailable: true, pageVisible: true, sensorHz: 60, sendHz: 30 };
+  const status = { sensorAvailable: true, pageVisible: true };
 
-  it('센서 미수신 상태와 0Hz도 유효한 상태로 취급한다', () => {
+  it('센서 미수신 상태도 유효한 상태로 취급한다', () => {
     expect(isValidControllerStatus(status)).toBe(true);
-    expect(
-      isValidControllerStatus({ ...status, sensorAvailable: false, sensorHz: 0, sendHz: 0 }),
-    ).toBe(true);
-  });
-
-  it.each([NaN, Infinity, -1, '60', null, undefined])('잘못된 빈도를 거절한다: %s', (rate) => {
-    expect(isValidControllerStatus({ ...status, sensorHz: rate })).toBe(false);
-    expect(isValidControllerStatus({ ...status, sendHz: rate })).toBe(false);
+    expect(isValidControllerStatus({ ...status, sensorAvailable: false })).toBe(true);
   });
 
   it('객체·불리언 필드가 없거나 타입이 다르면 거절한다', () => {

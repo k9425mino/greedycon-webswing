@@ -1,17 +1,22 @@
 import { test, expect } from '@playwright/test';
+import { expectPhase, expectPhysicsReady, installHostProbe } from './hostProbe';
+
+test.beforeEach(async ({ page }) => {
+  await installHostProbe(page);
+});
 
 test('마우스 플레이: 운영자 중지 후 시작 버튼으로 재개한다', async ({ page }) => {
   await page.goto('/?input=mouse');
-  await expect(page.locator('#status-physics')).toHaveText('준비됨');
+  await expectPhysicsReady(page);
   await page.locator('#btn-start').click();
   await page.keyboard.press('Escape');
-  await expect(page.locator('#status-phase')).toHaveText('paused');
+  await expectPhase(page, 'paused');
   await page.waitForTimeout(2200);
-  await expect(page.locator('#status-phase')).toHaveText('paused');
+  await expectPhase(page, 'paused');
   await expect(page.locator('#btn-start')).toBeEnabled();
   await page.locator('#btn-start').click();
-  await expect(page.locator('#status-phase')).toHaveText('playing');
-  await expect(page.locator('#status-phase')).toHaveText('gameOver', { timeout: 15_000 });
+  await expectPhase(page, 'playing');
+  await expectPhase(page, 'gameOver', { timeout: 15_000 });
   await expect(page.locator('#btn-switch-phone')).toBeDisabled();
 });
 
@@ -20,37 +25,36 @@ test('마우스 플레이: 운영자 중지 후 시작 버튼으로 재개한다
 test('마우스 플레이: 새 게임, 추락, 재시작', async ({ page }) => {
   await page.goto('/?input=mouse');
 
-  const statusPhysics = page.locator('#status-physics');
-  await expect(statusPhysics).toHaveText('준비됨', { timeout: 15_000 });
+  await expectPhysicsReady(page, { timeout: 15_000 });
 
   const btnStart = page.locator('#btn-start');
   await expect(btnStart).toBeEnabled();
   await btnStart.click();
-  await expect(page.locator('#status-phase')).toHaveText('playing');
+  await expectPhase(page, 'playing');
 
   // 조준하지 않고 그대로 두면 초기 전방 속도로 날아가다 중력에 의해 추락한다.
-  await expect(page.locator('#status-phase')).toHaveText('gameOver', { timeout: 15_000 });
+  await expectPhase(page, 'gameOver', { timeout: 15_000 });
   await expect(page.locator('#gameover-section')).toBeVisible();
 
   const btnRestart = page.locator('#btn-restart');
   await btnRestart.click();
-  await expect(page.locator('#status-phase')).toHaveText('ready');
+  await expectPhase(page, 'ready');
   await expect(btnStart).toBeEnabled();
 });
 
 test('마우스 플레이: 점수가 진행 중에만 증가하고 종료 화면에 결과가 남는다', async ({ page }) => {
   await page.goto('/?input=mouse');
-  await expect(page.locator('#status-physics')).toHaveText('준비됨', { timeout: 15_000 });
+  await expectPhysicsReady(page, { timeout: 15_000 });
 
   const hudScore = page.locator('#hud-score');
   await expect(hudScore).toHaveText('0');
 
   await page.locator('#btn-start').click();
-  await expect(page.locator('#status-phase')).toHaveText('playing');
+  await expectPhase(page, 'playing');
   await expect.poll(async () => Number(await hudScore.textContent())).toBeGreaterThan(0);
 
   // 추락으로 종료된 뒤에는 점수가 더 늘지 않는다.
-  await expect(page.locator('#status-phase')).toHaveText('gameOver', { timeout: 15_000 });
+  await expectPhase(page, 'gameOver', { timeout: 15_000 });
   const finalScore = Number(await hudScore.textContent());
   await page.waitForTimeout(1000);
   expect(Number(await hudScore.textContent())).toBe(finalScore);
@@ -60,16 +64,16 @@ test('마우스 플레이: 점수가 진행 중에만 증가하고 종료 화면
 
   // 재시작하면 점수가 초기화된다.
   await page.locator('#btn-restart').click();
-  await expect(page.locator('#status-phase')).toHaveText('ready');
+  await expectPhase(page, 'ready');
   await expect(hudScore).toHaveText('0');
 });
 
 test('마우스 플레이: 건물을 겨눠 부착하면 거미줄이 표시된다', async ({ page }) => {
   await page.goto('/?input=mouse');
-  await expect(page.locator('#status-physics')).toHaveText('준비됨', { timeout: 15_000 });
+  await expectPhysicsReady(page, { timeout: 15_000 });
 
   await page.locator('#btn-start').click();
-  await expect(page.locator('#status-phase')).toHaveText('playing');
+  await expectPhase(page, 'playing');
   const startedAt = Date.now();
 
   const canvas = page.locator('#scene');
@@ -86,7 +90,7 @@ test('마우스 플레이: 건물을 겨눠 부착하면 거미줄이 표시된�
 
   // 부착 보조는 부착점을 지나면 끝나므로 계속 누르고 있어도 결국 추락한다. 살아 있는 시간으로
   // 부착 효과를 본다. 시작 높이 18m에서 자유낙하라면 약 1.9초에 끝난다.
-  await expect(page.locator('#status-phase')).toHaveText('gameOver', { timeout: 15_000 });
+  await expectPhase(page, 'gameOver', { timeout: 15_000 });
   expect(Date.now() - startedAt).toBeGreaterThan(2400);
 
   await page.mouse.up();
@@ -96,9 +100,9 @@ test('마우스 플레이: 조준점이 마우스 위치를 따라가고 표적�
   page,
 }) => {
   await page.goto('/?input=mouse');
-  await expect(page.locator('#status-physics')).toHaveText('준비됨', { timeout: 15_000 });
+  await expectPhysicsReady(page, { timeout: 15_000 });
   await page.locator('#btn-start').click();
-  await expect(page.locator('#status-phase')).toHaveText('playing');
+  await expectPhase(page, 'playing');
   const startedAt = Date.now();
 
   const canvas = page.locator('#scene');

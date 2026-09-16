@@ -1,50 +1,28 @@
 import { expect, test } from '@playwright/test';
 import { io } from 'socket.io-client';
 import type { Page } from '@playwright/test';
+import { expectPhase, expectPhysicsReady, installHostProbe, readHostState } from './hostProbe';
 
 // 플레이 중에는 조작 창이 숨겨진다. 오디오·세션 동작만 보는 검증은 버튼을 직접 호출한다.
 async function clickHidden(page: Page, selector: string) {
   await page.locator(selector).evaluate((button: HTMLButtonElement) => button.click());
 }
 
-// 테스트 응답에만 읽기 전용 관찰 함수를 붙인다. 제품 코드에는 테스트 훅을 두지 않는다.
 test.beforeEach(async ({ page }) => {
+  await installHostProbe(page);
   await page.addInitScript(() => {
     const original = AudioContext.prototype.createOscillator;
     AudioContext.prototype.createOscillator = function () {
       const data = document.documentElement.dataset;
       data.oscillators = String(Number(data.oscillators ?? 0) + 1);
-      data.activeOscillators = String(Number(data.activeOscillators ?? 0) + 1);
-      const osc = original.call(this);
-      const disconnect = osc.disconnect.bind(osc);
-      osc.disconnect = () => {
-        data.activeOscillators = String(Number(data.activeOscillators) - 1);
-        disconnect();
-      };
-      return osc;
+      return original.call(this);
     };
-  });
-  await page.route('**/host/main.ts', async (route) => {
-    const response = await route.fetch();
-    await route.fulfill({
-      response,
-      body:
-        (await response.text()) +
-        `
-        export function readEffects() {
-          return { phase, firing: swing?.phase === 'firing',
-            beam: fireStrand.group.visible, beamOpacity: fireStrand.core.material.opacity,
-            flash: attachFlash.visible,
-            attached: attachedPoint !== null, audioAvailable: sfx.available };
-        }
-      `,
-    });
   });
 });
 
 test('빗나간 발사는 한 번 표시된 뒤 누르고 있어도 사라진다', async ({ page }) => {
   await page.goto('/?input=mouse');
-  await expect(page.locator('#status-physics')).toHaveText('준비됨');
+  await expectPhysicsReady(page);
   const box = await page.locator('#scene').boundingBox();
   if (!box) throw new Error('canvas not found');
 
@@ -53,11 +31,11 @@ test('빗나간 발사는 한 번 표시된 뒤 누르고 있어도 사라진다
   // 그 시간이 플레이 구간을 먹지 않게 한다.
   await page.evaluate(async () => {
     const path = '/host/main.ts';
-    const { readEffects } = await import(path);
+    const { readHostState } = await import(path);
     const deadline = performance.now() + 5000;
     const data = document.documentElement.dataset;
     function observe() {
-      const effect = readEffects();
+      const effect = readHostState();
       if (effect.attached) data.missAttached = 'true';
       if (effect.beam) {
         if (data.missBeamGone === 'true') data.missBeamRefired = 'true';
@@ -87,14 +65,14 @@ test('빗나간 발사는 한 번 표시된 뒤 누르고 있어도 사라진다
   await expect(page.locator('html')).not.toHaveAttribute('data-miss-beam-refired', 'true');
   await expect(page.locator('html')).not.toHaveAttribute('data-miss-attached', 'true');
   await expect(page.locator('html')).not.toHaveAttribute('data-invalid-beam-opacity', 'true');
-  // 바람 + 발사음 + 실패음. 줄이 손을 떠난 뒤 최대 사거리에서 실패하므로 발사음도 함께 난다.
-  await expect(page.locator('html')).toHaveAttribute('data-oscillators', '3');
+  // 발사음 + 실패음. 줄이 손을 떠난 뒤 최대 사거리에서 실패하므로 발사음도 함께 난다.
+  await expect(page.locator('html')).toHaveAttribute('data-oscillators', '2');
   await page.mouse.up();
 });
 
 test('발사 중 정지하면 임시 효과가 사라지고 재개 후 다시 발사할 수 있다', async ({ page }) => {
   await page.goto('/?input=mouse');
-  await expect(page.locator('#status-physics')).toHaveText('준비됨');
+  await expectPhysicsReady(page);
   await page.locator('#btn-start').click();
   const box = await page.locator('#scene').boundingBox();
   if (!box) throw new Error('canvas not found');
@@ -102,25 +80,21 @@ test('발사 중 정지하면 임시 효과가 사라지고 재개 후 다시 �
   // 100ms 발사 구간을 놓치지 않도록 브라우저 프레임 안에서 정지(Esc)를 보낸다.
   await page.evaluate(async () => {
     const path = '/host/main.ts';
-    const { readEffects } = await import(path);
+    const { readHostState } = await import(path);
     const deadline = performance.now() + 5000;
     function check() {
-      if (readEffects().firing) {
+      if (readHostState().firing) {
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
       } else if (performance.now() < deadline) requestAnimationFrame(check);
     }
     requestAnimationFrame(check);
   });
   await page.mouse.down();
-  await expect(page.locator('#status-phase')).toHaveText('paused');
+  await expectPhase(page, 'paused');
   await page.mouse.up();
-  await expect(page.locator('#status-phase')).toHaveText('paused');
+  await expectPhase(page, 'paused');
   await page.waitForTimeout(300);
-  const snapshot = () =>
-    page.evaluate(async () => {
-      const path = '/host/main.ts';
-      return (await import(path)).readEffects();
-    });
+  const snapshot = () => readHostState(page);
   expect(await snapshot()).toMatchObject({ beam: false, flash: false });
   await page.locator('#btn-start').click();
   await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.18);
@@ -146,46 +120,25 @@ test('오디오 노드 생성 실패에도 발사·부착과 종료·재시작�
     };
   });
   await page.goto('/?input=mouse');
-  await expect(page.locator('#status-physics')).toHaveText('준비됨');
+  await expectPhysicsReady(page);
   await page.locator('#btn-start').click();
   const box = await page.locator('#scene').boundingBox();
   if (!box) throw new Error('canvas not found');
   await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.18);
   await page.mouse.down();
   await expect
-    .poll(() =>
-      page.evaluate(async () => {
-        const path = '/host/main.ts';
-        return (await import(path)).readEffects();
-      }),
-    )
+    .poll(() => readHostState(page))
     .toMatchObject({ attached: true, audioAvailable: false });
   await page.mouse.up();
-  await expect(page.locator('#status-phase')).toHaveText('gameOver', { timeout: 15000 });
+  await expectPhase(page, 'gameOver', { timeout: 15000 });
   await page.locator('#btn-restart').click();
-  await expect(page.locator('#status-phase')).toHaveText('ready');
+  await expectPhase(page, 'ready');
   expect(errors).toEqual([]);
 });
 
-test('실제 AudioContext에서 음소거 해제와 정지 후 음소거 해제를 구분한다', async ({ page }) => {
-  await page.goto('/?input=mouse');
-  await expect(page.locator('#status-physics')).toHaveText('준비됨');
-  await page.locator('#btn-start').click();
-  await expect(page.locator('html')).toHaveAttribute('data-oscillators', '1');
-  // 플레이 중에는 조작 창이 숨겨져 있으므로 음소거 버튼은 프로그램적으로 누른다.
-  await clickHidden(page, '#btn-mute');
-  await clickHidden(page, '#btn-mute');
-  await expect(page.locator('html')).toHaveAttribute('data-oscillators', '2');
-  await page.keyboard.press('Escape');
-  await page.locator('#btn-mute').click();
-  await page.locator('#btn-mute').click();
-  await expect(page.locator('html')).toHaveAttribute('data-oscillators', '2');
-  await expect(page.locator('html')).toHaveAttribute('data-active-oscillators', '0');
-});
-
-test('플레이 중 폰 교체는 바람과 임시 효과를 정리한다', async ({ page, baseURL }) => {
+test('플레이 중 폰 교체는 임시 효과를 정리한다', async ({ page, baseURL }) => {
   await page.goto('/');
-  await expect(page.locator('#status-physics')).toHaveText('준비됨');
+  await expectPhysicsReady(page);
   await expect(page.locator('#invite-link')).toHaveAttribute('href', /invite=/);
   const invite = new URL(
     (await page.locator('#invite-link').getAttribute('href'))!,
@@ -201,8 +154,6 @@ test('플레이 중 폰 교체는 바람과 임시 효과를 정리한다', asyn
       controller.emit('controller:status', {
         sensorAvailable: true,
         pageVisible: true,
-        sensorHz: 20,
-        sendHz: 20,
       });
       controller.emit('controller:input', {
         seq: ++seq,
@@ -213,16 +164,9 @@ test('플레이 중 폰 교체는 바람과 임시 효과를 정리한다', asyn
     await expect(page.locator('#btn-calibrate')).toBeEnabled();
     await page.locator('#btn-calibrate').click();
     await page.locator('#btn-start').click();
-    await expect(page.locator('html')).toHaveAttribute('data-active-oscillators', '1');
     await clickHidden(page, '#btn-switch-phone');
-    await expect(page.locator('#status-phase')).toHaveText('pairing');
-    await expect(page.locator('html')).toHaveAttribute('data-active-oscillators', '0');
-    expect(
-      await page.evaluate(async () => {
-        const path = '/host/main.ts';
-        return (await import(path)).readEffects();
-      }),
-    ).toMatchObject({ beam: false, flash: false });
+    await expectPhase(page, 'pairing');
+    expect(await readHostState(page)).toMatchObject({ beam: false, flash: false });
   } finally {
     clearInterval(timer);
     controller.disconnect();

@@ -188,20 +188,3 @@ body {
   background: #2a2a38;
   color: #eee;
 }
-
-#diagnostics-section {
-  margin-top: 12px;
-  text-align: left;
-  color: #999;
-  font-size: 13px;
-}
-
-#diagnostics-section summary {
-  cursor: pointer;
-  color: #999;
-  font-size: 13px;
-}
-
-#diagnostics-section ul {
-  margin: 8px 0 0;
-}

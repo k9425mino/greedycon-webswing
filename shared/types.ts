@@ -25,8 +25,6 @@ export type HostState = {
 export type ControllerStatus = {
   sensorAvailable: boolean;
   pageVisible: boolean;
-  sensorHz: number;
-  sendHz: number;
 };
 
 export type SessionRole = 'host' | 'controller';

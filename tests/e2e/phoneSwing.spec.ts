@@ -1,5 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
 import { gameConfig } from '@shared/config';
+import {
+  expectHostState,
+  expectPhase,
+  expectPhysicsReady,
+  installHostProbe,
+  readHostState,
+} from './hostProbe';
 
 // 폰에서 노트북까지의 실제 경로를 확인한다. 모의하는 것은 deviceorientation 이벤트뿐이고
 // 터치 처리·전송·보정·표적 선택·물리는 모두 제품 코드를 그대로 지난다.
@@ -44,15 +51,11 @@ async function aimPhone(page: Page, orientation: Orientation) {
   }, orientation);
 }
 
-// 테스트 응답에만 읽기 전용 관찰 함수를 붙인다. 제품 코드에는 테스트 훅을 두지 않는다.
+// 공용 관찰 함수에 스윙 물리·줄 표시 관찰을 덧붙인다.
 async function exposeSwingState(page: Page) {
-  await page.route('**/host/main.ts', async (route) => {
-    const response = await route.fetch();
-    await route.fulfill({
-      response,
-      body:
-        (await response.text()) +
-        `
+  await installHostProbe(
+    page,
+    `
         export function readSwingState() {
           return {
             phase,
@@ -88,8 +91,7 @@ async function exposeSwingState(page: Page) {
           };
         }
       `,
-    });
-  });
+  );
 }
 
 function readSwingState(page: Page): Promise<SwingState> {
@@ -99,10 +101,13 @@ function readSwingState(page: Page): Promise<SwingState> {
   });
 }
 
+// 조준각은 실제 발사에 쓰는 방향에서 그대로 되돌려 계산한다.
 async function readAimAngles(page: Page): Promise<{ yawDeg: number; pitchDeg: number }> {
-  const text = (await page.locator('#diag-aim').textContent()) ?? '';
-  const [yaw, pitch] = text.match(/-?\d+\.\d/g)?.map(Number) ?? [];
-  return { yawDeg: yaw ?? NaN, pitchDeg: pitch ?? NaN };
+  const [dx, dy, dz] = (await readHostState(page)).aim;
+  return {
+    yawDeg: (Math.atan2(dx, -dz) * 180) / Math.PI,
+    pitchDeg: (Math.asin(Math.max(-1, Math.min(1, dy))) * 180) / Math.PI,
+  };
 }
 
 async function connectPhone(page: Page, inviteUrl: string) {
@@ -114,7 +119,7 @@ async function connectPhone(page: Page, inviteUrl: string) {
 async function openHost(page: Page): Promise<string> {
   await exposeSwingState(page);
   await page.goto('/');
-  await expect(page.locator('#status-physics')).toHaveText('준비됨', { timeout: 15_000 });
+  await expectPhysicsReady(page, { timeout: 15_000 });
   await expect(page.locator('#invite-link')).toHaveAttribute('href', /.+/, { timeout: 5000 });
   const inviteUrl = await page.locator('#invite-link').getAttribute('href');
   if (!inviteUrl) throw new Error('invite url not rendered');
@@ -139,13 +144,16 @@ test('폰 입력: 보정·조준·터치 유지가 실제 물리 부착과 스�
     const inviteUrl = await openHost(hostPage);
     await connectPhone(controllerPage, inviteUrl);
 
-    await expect(hostPage.locator('#status-connection')).toHaveText('연결됨', { timeout: 10_000 });
-    await expect(hostPage.locator('#status-sensor')).toHaveText('정상', { timeout: 10_000 });
+    await expectHostState(
+      hostPage,
+      { controllerConnected: true, sensorAvailable: true },
+      { timeout: 10_000 },
+    );
 
     // 기준 자세에서 보정한다.
     await aimPhone(controllerPage, FORWARD);
     await hostPage.click('#btn-calibrate');
-    await expect(hostPage.locator('#status-phase')).toHaveText('ready', { timeout: 5000 });
+    await expectPhase(hostPage, 'ready', { timeout: 5000 });
 
     // 좌우 ±30도·위쪽 30도가 그대로 조준각에 나타난다.
     await aimPhone(controllerPage, AIM_RIGHT_UP);
@@ -157,23 +165,21 @@ test('폰 입력: 보정·조준·터치 유지가 실제 물리 부착과 스�
     await aimPhone(controllerPage, AIM_RIGHT_UP);
     await hoverTouchArea(controllerPage);
     await hostPage.click('#btn-start');
-    await expect(hostPage.locator('#status-phase')).toHaveText('playing');
+    await expectPhase(hostPage, 'playing');
 
     // 표적 마커가 먼저 보이고, 터치를 유지하면 firing을 거쳐 실제 물리 부착까지 간다.
     await expect(hostPage.locator('#crosshair')).toHaveAttribute('data-has-target', 'true', {
       timeout: 3000,
     });
     await expect(hostPage.locator('#target-marker')).toBeVisible();
-    await expect(hostPage.locator('#diag-target')).toContainText('있음');
 
     await controllerPage.mouse.down();
-    await expect(hostPage.locator('#status-touch')).toHaveText('누름', { timeout: 3000 });
+    await expectHostState(hostPage, { pressed: true }, { timeout: 3000 });
     await expect(hostPage.locator('#hud-web-status')).toHaveText('부착됨', { timeout: 5000 });
-    await expect(hostPage.locator('#diag-web-phase')).toHaveText('attached');
-    await expect(hostPage.locator('#diag-attach')).toContainText('부착');
-    await expect(hostPage.locator('#diag-web-failure')).toHaveText('없음');
 
+    // 부착 보조 구간은 짧다. 한 번 읽은 상태로 모두 검사해 관찰이 구간을 먹지 않게 한다.
     const attached = await readSwingState(hostPage);
+    expect(attached).toMatchObject({ swingPhase: 'attached', failure: null });
     expect(attached.attachment).not.toBeNull();
     const startY = attached.position![1];
 
@@ -215,9 +221,9 @@ test('폰 입력: 보정·조준·터치 유지가 실제 물리 부착과 스�
 
     // 손을 떼면 줄을 놓는다.
     await controllerPage.mouse.up();
-    await expect(hostPage.locator('#status-touch')).toHaveText('해제', { timeout: 3000 });
+    await expectHostState(hostPage, { pressed: false }, { timeout: 3000 });
     await expect.poll(async () => (await readSwingState(hostPage)).attachment).toBeNull();
-    await expect(hostPage.locator('#diag-web-phase')).toHaveText('idle');
+    expect((await readSwingState(hostPage)).swingPhase).toBe('idle');
   } finally {
     await controllerContext.close();
     await hostContext.close();
@@ -236,21 +242,21 @@ test('폰 입력: 빗나가면 부착되지 않고, 누르는 동안 반복 발�
   try {
     const inviteUrl = await openHost(hostPage);
     await connectPhone(controllerPage, inviteUrl);
-    await expect(hostPage.locator('#status-sensor')).toHaveText('정상', { timeout: 10_000 });
+    await expectHostState(hostPage, { sensorAvailable: true }, { timeout: 10_000 });
 
     await aimPhone(controllerPage, FORWARD);
     await hostPage.click('#btn-calibrate');
-    await expect(hostPage.locator('#status-phase')).toHaveText('ready', { timeout: 5000 });
+    await expectPhase(hostPage, 'ready', { timeout: 5000 });
 
     await aimPhone(controllerPage, AIM_SKY);
     await hoverTouchArea(controllerPage);
     await hostPage.click('#btn-start');
-    await expect(hostPage.locator('#status-phase')).toHaveText('playing');
+    await expectPhase(hostPage, 'playing');
     await expect(hostPage.locator('#crosshair')).toHaveAttribute('data-has-target', 'false');
 
     await controllerPage.mouse.down();
     await expect(hostPage.locator('#hud-web-status')).toHaveText('빗나감', { timeout: 3000 });
-    await expect(hostPage.locator('#diag-web-failure')).toHaveText('표적 없음');
+    expect((await readSwingState(hostPage)).failure).toBe('noTarget');
     expect((await readSwingState(hostPage)).attachment).toBeNull();
 
     // 누르는 동안에는 표적을 다시 겨눠도 재발사하지 않는다.
@@ -265,14 +271,13 @@ test('폰 입력: 빗나가면 부착되지 않고, 누르는 동안 반복 발�
     // 빗나감과 재시도를 모두 담을 수 없어, 손을 떼고 새 판에서 재발사가 되는지 본다.
     await controllerPage.mouse.up();
     // 재시도 전에 폰의 해제가 호스트까지 전달됐는지 확인한다.
-    await expect(hostPage.locator('#status-touch')).toHaveText('해제');
-    await expect(hostPage.locator('#status-phase')).toHaveText('gameOver', { timeout: 5000 });
+    await expectHostState(hostPage, { pressed: false });
+    await expectPhase(hostPage, 'gameOver', { timeout: 5000 });
     await hostPage.click('#btn-restart');
-    await expect(hostPage.locator('#status-phase')).toHaveText('ready', { timeout: 5000 });
-    // ready 화면은 마지막 진단 문구를 보존하므로 실제 초기화된 상태를 확인한다.
+    await expectPhase(hostPage, 'ready', { timeout: 5000 });
     await expect.poll(async () => (await readSwingState(hostPage)).swingPhase).toBe('idle');
     await hostPage.click('#btn-start');
-    await expect(hostPage.locator('#status-phase')).toHaveText('playing');
+    await expectPhase(hostPage, 'playing');
     await controllerPage.mouse.down();
     await expect(hostPage.locator('#hud-web-status')).toHaveText('부착됨', { timeout: 5000 });
     await controllerPage.mouse.up();
@@ -292,11 +297,11 @@ test('폰 입력: 중지 후 재개하면 이전 줄이 남지 않고 자동 부
   try {
     const inviteUrl = await openHost(hostPage);
     await connectPhone(controllerPage, inviteUrl);
-    await expect(hostPage.locator('#status-sensor')).toHaveText('정상', { timeout: 10_000 });
+    await expectHostState(hostPage, { sensorAvailable: true }, { timeout: 10_000 });
 
     await aimPhone(controllerPage, FORWARD);
     await hostPage.click('#btn-calibrate');
-    await expect(hostPage.locator('#status-phase')).toHaveText('ready', { timeout: 5000 });
+    await expectPhase(hostPage, 'ready', { timeout: 5000 });
 
     await aimPhone(controllerPage, AIM_RIGHT_UP);
     await hoverTouchArea(controllerPage);
@@ -306,26 +311,26 @@ test('폰 입력: 중지 후 재개하면 이전 줄이 남지 않고 자동 부
 
     // 매달린 채로 운영자가 중지한다. 폰 입력이 살아 있으면 곧바로 재보정 단계로 넘어간다.
     await hostPage.click('#btn-stop');
-    await expect(hostPage.locator('#status-phase')).not.toHaveText('playing', { timeout: 5000 });
-    // 플레이가 끝나도 마지막 발사 결과는 진단에 남는다.
-    await expect(hostPage.locator('#diag-web-phase')).toHaveText('attached');
-    await expect(hostPage.locator('#diag-attach')).toContainText('부착');
+    await expect.poll(() => readHostState(hostPage)).not.toMatchObject({ phase: 'playing' });
+    // 플레이가 끝나도 마지막 발사 상태는 그대로 남는다.
+    expect(await readSwingState(hostPage)).toMatchObject({ swingPhase: 'attached' });
+    expect((await readSwingState(hostPage)).attachment).not.toBeNull();
 
     // 재보정은 손을 뗀 뒤에만 가능하다.
     await controllerPage.mouse.up();
-    await expect(hostPage.locator('#status-phase')).toHaveText('calibrating', { timeout: 5000 });
+    await expectPhase(hostPage, 'calibrating', { timeout: 5000 });
     await hostPage.click('#btn-calibrate');
-    await expect(hostPage.locator('#status-phase')).toHaveText('ready');
+    await expectPhase(hostPage, 'ready');
 
     // 다시 손가락을 올린 채로는 시작할 수 없다(누름 상태에서의 자동 발사 차단).
     await controllerPage.mouse.down();
-    await expect(hostPage.locator('#status-touch')).toHaveText('누름', { timeout: 3000 });
+    await expectHostState(hostPage, { pressed: true }, { timeout: 3000 });
     await expect(hostPage.locator('#btn-start')).toBeDisabled();
 
     await controllerPage.mouse.up();
     await expect(hostPage.locator('#btn-start')).toBeEnabled({ timeout: 3000 });
     await hostPage.click('#btn-start');
-    await expect(hostPage.locator('#status-phase')).toHaveText('playing');
+    await expectPhase(hostPage, 'playing');
 
     // 재개 직후에는 이전 줄이 사라져 있고, 누르지 않는 동안 스스로 부착하지 않는다.
     expect(await readSwingState(hostPage)).toMatchObject({ swingPhase: 'idle', attachment: null });

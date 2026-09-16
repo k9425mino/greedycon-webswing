@@ -24,9 +24,6 @@ let seq = 0;
 let rateHz: InputRateHz = gameConfig.defaultInputRateHz;
 let sendTimer: ReturnType<typeof setInterval> | null = null;
 
-const sensorEventCounter = { count: 0, windowStart: performance.now() };
-const sendCounter = { count: 0, windowStart: performance.now() };
-
 // 화면에 글자를 두지 않으므로 상태는 오버레이·LED로만 보인다. 문구는 스크린 리더용으로 남긴다.
 function setState(state: 'idle' | 'live' | 'error', message: string) {
   app.dataset.state = state;
@@ -56,28 +53,13 @@ function startSendLoop() {
     const frame = currentFrame();
     if (!frame) return;
     controllerSocket.sendDirectionFrame(frame);
-    sendCounter.count += 1;
   }, 1000 / rateHz);
-}
-
-function windowedRate(counter: { count: number; windowStart: number }): number {
-  const now = performance.now();
-  const elapsed = now - counter.windowStart;
-  if (elapsed >= 1000) {
-    const hz = (counter.count * 1000) / elapsed;
-    counter.count = 0;
-    counter.windowStart = now;
-    return Math.round(hz);
-  }
-  return Math.round((counter.count * 1000) / Math.max(elapsed, 1));
 }
 
 function sendStatus() {
   const status: ControllerStatus = {
     sensorAvailable: sensor.available,
     pageVisible: document.visibilityState === 'visible',
-    sensorHz: windowedRate(sensorEventCounter),
-    sendHz: windowedRate(sendCounter),
   };
   ledSensor.classList.toggle('on', status.sensorAvailable);
   controllerSocket.sendStatus(status);
@@ -146,8 +128,6 @@ window.screen.orientation?.addEventListener('change', () => {
   controllerSocket.sendStatus({
     sensorAvailable: false,
     pageVisible: document.visibilityState === 'visible',
-    sensorHz: 0,
-    sendHz: 0,
   });
 });
 
@@ -183,9 +163,7 @@ btnPermission.addEventListener('click', async () => {
       setState('error', '이 브라우저에서는 방향 센서를 사용할 수 없습니다.');
       return;
     }
-    sensor.start(() => {
-      sensorEventCounter.count += 1;
-    });
+    sensor.start();
     setTimeout(() => {
       // 센서 LED가 꺼진 것으로 이미 보이므로 오버레이로 발사 버튼을 덮지 않는다.
       if (!sensor.available) {

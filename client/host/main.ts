@@ -23,7 +23,6 @@ import {
   directionToScreenRatio,
 } from './aim';
 import { nextPendingResume } from './resumeState';
-import { RateCounter } from './diagnostics';
 import {
   createAttachFlash,
   createChunkMeshes,
@@ -42,22 +41,11 @@ import { isMouseInputEnabled, MouseAimInput } from './mouseInput';
 import { PhysicsWorld, type Vec3 } from './physics';
 import { ChunkedWorld, chunkIndexForZ, chunkBuildingColliders } from './world';
 import { Progress } from './progress';
-import {
-  defaultSwingOptions,
-  selectTarget,
-  WebSwing,
-  type FireFailure,
-  type TargetHit,
-} from './web';
+import { defaultSwingOptions, selectTarget, WebSwing } from './web';
 import { SfxPlayer } from './audio';
 
 const qrImage = document.getElementById('qr-image') as HTMLImageElement;
 const inviteLink = document.getElementById('invite-link') as HTMLAnchorElement;
-const statusConnection = document.getElementById('status-connection') as HTMLElement;
-const statusSensor = document.getElementById('status-sensor') as HTMLElement;
-const statusTouch = document.getElementById('status-touch') as HTMLElement;
-const statusPhase = document.getElementById('status-phase') as HTMLElement;
-const statusPhysics = document.getElementById('status-physics') as HTMLElement;
 const crosshair = document.getElementById('crosshair') as HTMLElement;
 const targetMarker = document.getElementById('target-marker') as HTMLElement;
 const modalBackdrop = document.getElementById('modal-backdrop') as HTMLElement;
@@ -72,14 +60,6 @@ const hudSpeed = document.getElementById('hud-speed') as HTMLElement;
 const hudStall = document.getElementById('hud-stall') as HTMLElement;
 const hudStallLeft = document.getElementById('hud-stall-left') as HTMLElement;
 const hudWebStatus = document.getElementById('hud-web-status') as HTMLElement;
-const diagAim = document.getElementById('diag-aim') as HTMLElement;
-const diagTarget = document.getElementById('diag-target') as HTMLElement;
-const diagWebPhase = document.getElementById('diag-web-phase') as HTMLElement;
-const diagWebFailure = document.getElementById('diag-web-failure') as HTMLElement;
-const diagAttach = document.getElementById('diag-attach') as HTMLElement;
-const diagSensorHz = document.getElementById('diag-sensor-hz') as HTMLElement;
-const diagSendHz = document.getElementById('diag-send-hz') as HTMLElement;
-const diagRecvHz = document.getElementById('diag-recv-hz') as HTMLElement;
 const btnCalibrate = document.getElementById('btn-calibrate') as HTMLButtonElement;
 const btnStart = document.getElementById('btn-start') as HTMLButtonElement;
 const btnMute = document.getElementById('btn-mute') as HTMLButtonElement;
@@ -100,12 +80,6 @@ const RECOVERY_MESSAGES: Record<PauseReason, string> = {
   outOfBounds: '도로 밖으로 벗어나 종료했습니다.',
   stalled: '전진 정체로 종료되었습니다.',
   operator: '운영자가 중지했습니다.',
-};
-
-// 발사가 부착으로 이어지지 못한 이유. 실기기에서 어느 판정이 걸렀는지 구분하기 위한 진단 문구다.
-const FIRE_FAILURE_MESSAGES: Record<FireFailure, string> = {
-  noTarget: '표적 없음',
-  releasedWhileFiring: '발사 도중 해제',
 };
 
 // 화면 단계별로 다음에 할 일을 안내한다(pairing/calibrating/ready/playing). paused·gameOver는
@@ -139,7 +113,6 @@ let physicsReady = false;
 
 const calibration = new Calibration();
 const seqTracker = createSeqTracker();
-const recvRate = new RateCounter();
 
 // --- 물리·월드·거미줄 (무한 도로, ARCHITECTURE 5절) ---
 let physics: PhysicsWorld | null = null;
@@ -168,9 +141,6 @@ let attachFlashStartMs: number | null = null;
 // 걸리지 못한 거미줄. 최대 사거리에서 끊긴 뒤에도 같은 방향으로 계속 날아가며 흐려진다.
 let missBeam: { path: Vec3[]; direction: Vec3; startedAtMs: number } | null = null;
 
-// 조준점 갱신에서 계산한 부착 예정점. 표시와 진단이 같은 값을 쓰도록 보관한다.
-let previewTarget: TargetHit | null = null;
-
 // 구간 생성·회수는 렌더 mesh와 물리 콜라이더를 같은 단위로 함께 붙였다 뗀다.
 const world = new ChunkedWorld({
   onAdd: (chunk) => {
@@ -195,11 +165,9 @@ PhysicsWorld.create()
     progress.reset(world.startPosition[2]);
     swing = new WebSwing(physics, swingOptions);
     physicsReady = true;
-    statusPhysics.textContent = '준비됨';
-    refreshStatusText();
+    refreshControls();
   })
   .catch((error) => {
-    statusPhysics.textContent = '초기화 실패';
     console.error('Rapier 초기화 실패', error);
   });
 
@@ -214,8 +182,7 @@ function setPhase(next: GamePhase, nextReason?: PauseReason) {
   }
   phase = next;
   reason = nextReason;
-  statusPhase.textContent = phase;
-  refreshStatusText();
+  refreshControls();
   // 플레이 중에는 조작 창을 통째로 숨겨 캔버스를 가리지 않는다(정지는 Esc).
   modalBackdrop.hidden = phase === 'playing';
   pairingSection.hidden = phase !== 'pairing';
@@ -275,7 +242,6 @@ function goToPlaying() {
   pendingResume = false;
   physicsAccumulatorSec = 0;
   setPhase('playing');
-  sfx.startWind();
 }
 
 function goToPaused(pauseReason: PauseReason) {
@@ -337,20 +303,10 @@ function clearInput() {
   updateCrosshair();
 }
 
-function refreshStatusText() {
+function refreshControls() {
   btnCalibrate.disabled = mouseMode || phase !== 'calibrating' || !inputReady() || pressed;
   btnStart.disabled = !canStartPlaying();
   btnSwitchPhone.disabled = mouseMode;
-  statusConnection.textContent = mouseMode
-    ? '마우스 입력'
-    : controllerConnected
-      ? '연결됨'
-      : '대기중';
-  statusSensor.textContent = controllerStatus?.sensorAvailable ? '정상' : '없음';
-  statusTouch.textContent = pressed ? '누름' : '해제';
-  diagSensorHz.textContent = String(controllerStatus?.sensorHz ?? 0);
-  diagSendHz.textContent = String(controllerStatus?.sendHz ?? 0);
-  diagRecvHz.textContent = String(recvRate.hz());
 }
 
 function magnitude(v: Vec3): number {
@@ -377,7 +333,6 @@ function updateCrosshair() {
 
   const hasAim = mouseMode || (latestOrientation !== null && calibration.q0 !== null);
   if (!hasAim) {
-    previewTarget = null;
     crosshair.dataset.hasTarget = 'false';
     crosshair.dataset.onscreen = 'true';
     targetMarker.hidden = true;
@@ -390,7 +345,6 @@ function updateCrosshair() {
   crosshair.dataset.onscreen = String(projection.onScreen);
 
   const target = computePreviewTarget();
-  previewTarget = target;
   crosshair.dataset.hasTarget = String(target !== null);
   if (target && physics) {
     const toTarget = directionTo(physics.getPlayerPosition(), target.point);
@@ -413,9 +367,8 @@ const hostSocket = new HostSocket({
     latestOrientation = normalizeQuaternion(frame.orientation);
     pressed = frame.pressed;
     lastInputAt = performance.now();
-    recvRate.tick();
     maybeRecover();
-    refreshStatusText();
+    refreshControls();
   },
   onControllerStatus: (status: ControllerStatus) => {
     controllerStatus = status;
@@ -427,7 +380,7 @@ const hostSocket = new HostSocket({
       goToPaused('hidden');
     }
     maybeRecover();
-    refreshStatusText();
+    refreshControls();
   },
   onSessionStatus: (status) => {
     if (mouseMode) return;
@@ -444,12 +397,12 @@ const hostSocket = new HostSocket({
       clearInput();
       goToCalibrating();
     }
-    refreshStatusText();
+    refreshControls();
   },
 });
 
 setInterval(() => {
-  refreshStatusText();
+  refreshControls();
   if (mouseMode) return;
   if (
     (phase === 'playing' || phase === 'ready') &&
@@ -537,7 +490,6 @@ function stepPhysicsFixed(nowSec: number) {
       physics.attach(target.point);
       attachedPoint = target.point;
       attachedNormal = target.normal ?? [0, 0, 1];
-      sfx.playAttach();
       showAttachFlashAt(attachFlash, target.point);
       attachFlashStartMs = nowSec * 1000;
     },
@@ -574,14 +526,7 @@ const WEB_STATUS_MESSAGES = {
   missed: '빗나감',
 } as const;
 
-// 조준각은 실제 발사에 쓰는 방향에서 그대로 되돌려 계산하므로 표시와 발사가 어긋나지 않는다.
-// 표적·거미줄·부착 항목은 playing 동안만 갱신해 종료 화면에 마지막 발사 결과가 남는다.
-function updateDiagnostics() {
-  const [dx, dy, dz] = currentAimDirection;
-  const yawDeg = (Math.atan2(dx, -dz) * 180) / Math.PI;
-  const pitchDeg = (Math.asin(Math.max(-1, Math.min(1, dy))) * 180) / Math.PI;
-  diagAim.textContent = `좌우 ${yawDeg.toFixed(1)}° / 상하 ${pitchDeg.toFixed(1)}°`;
-
+function updateWebStatus() {
   const state =
     phase !== 'playing' || !swing
       ? null
@@ -597,22 +542,6 @@ function updateDiagnostics() {
     hudWebStatus.dataset.state = state;
     hudWebStatus.textContent = WEB_STATUS_MESSAGES[state];
   }
-
-  if (phase !== 'playing' || !swing) return;
-  // 발사 직전(idle)의 표적 유무를 남겨, 눌렀을 때 표적이 있었는지 사후에 확인할 수 있게 한다.
-  if (swing.phase === 'idle') {
-    diagTarget.textContent = previewTarget
-      ? `있음 (${previewTarget.distance.toFixed(1)}m)`
-      : '없음';
-  }
-  diagWebPhase.textContent = swing.phase;
-  diagWebFailure.textContent = swing.lastFailure
-    ? FIRE_FAILURE_MESSAGES[swing.lastFailure]
-    : '없음';
-  const attachment = physics?.attachment ?? null;
-  diagAttach.textContent = attachment
-    ? `부착 (앵커까지 ${attachment.distance.toFixed(1)}m / 보조 ${attachment.assisting ? '중' : '종료'})`
-    : '없음';
 }
 
 // 줄의 비행 경로는 발사 순간의 위치에서 출발한다. 그 사이 플레이어가 움직였으므로 시작점만
@@ -662,7 +591,7 @@ function frameLoop(nowMs: number) {
 
   const playerSpeed = physics ? magnitude(physics.getPlayerVelocity()) : null;
   updateHud(playerSpeed);
-  updateDiagnostics();
+  updateWebStatus();
 
   if (physics) {
     const alpha =
@@ -710,8 +639,6 @@ function frameLoop(nowMs: number) {
         updateAttachFlash(attachFlash, elapsed / gameConfig.effects.attachFlashDurationMs);
       }
     }
-
-    if (phase === 'playing' && playerSpeed !== null) sfx.updateWind(playerSpeed);
   }
 
   sceneHandle.render();
