@@ -1,11 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
 import { gameConfig } from '@shared/config';
 import {
+  expectAttachSeen,
   expectHostState,
   expectPhase,
   expectPhysicsReady,
   installHostProbe,
   readHostState,
+  startAttachWatch,
 } from './hostProbe';
 
 // 폰에서 노트북까지의 실제 경로를 확인한다. 모의하는 것은 deviceorientation 이벤트뿐이고
@@ -68,6 +70,28 @@ async function exposeSwingState(page: Page) {
           };
         }
 
+        // 줄은 앵커 높이까지 솟으면 저절로 풀린다. 부착 구간이 짧아 바깥에서 폴링하면
+        // 놓치므로, 부착한 프레임부터 풀릴 때까지를 프레임마다 기록해 둔다.
+        let swingRecord = null;
+        export function startSwingRecording() {
+          swingRecord = { samples: [], done: false };
+          const record = swingRecord;
+          function look() {
+            const state = readSwingState();
+            if (state.attachment) record.samples.push(state);
+            else if (record.samples.length > 0) {
+              record.done = true;
+              return;
+            }
+            requestAnimationFrame(look);
+          }
+          requestAnimationFrame(look);
+        }
+
+        export function readSwingRecording() {
+          return swingRecord ?? { samples: [], done: false };
+        }
+
         function readRope() {
           // 부착 줄은 튜브 메시다. 시작 단면의 첫 정점과 끝 뭉치 위치로 화면에서의 벌어짐을 잰다.
           const positions = ropeStrand.core.geometry.getAttribute('position');
@@ -99,6 +123,24 @@ function readSwingState(page: Page): Promise<SwingState> {
     const path = '/host/main.ts';
     return (await import(path)).readSwingState();
   });
+}
+
+async function startSwingRecording(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const path = '/host/main.ts';
+    (await import(path)).startSwingRecording();
+  });
+}
+
+// 한 번의 스윙이 끝날 때까지 기다렸다가 프레임별 표본을 돌려준다.
+async function recordedSwing(page: Page): Promise<SwingState[]> {
+  const read = () =>
+    page.evaluate(async () => {
+      const path = '/host/main.ts';
+      return (await import(path)).readSwingRecording() as { samples: SwingState[]; done: boolean };
+    });
+  await expect.poll(async () => (await read()).done, { timeout: 10_000 }).toBe(true);
+  return (await read()).samples;
 }
 
 // 조준각은 실제 발사에 쓰는 방향에서 그대로 되돌려 계산한다.
@@ -173,18 +215,20 @@ test('폰 입력: 보정·조준·터치 유지가 실제 물리 부착과 스�
     });
     await expect(hostPage.locator('#target-marker')).toBeVisible();
 
+    await startSwingRecording(hostPage);
     await controllerPage.mouse.down();
     await expectHostState(hostPage, { pressed: true }, { timeout: 3000 });
-    await expect(hostPage.locator('#hud-web-status')).toHaveText('부착됨', { timeout: 5000 });
 
-    // 부착 보조 구간은 짧다. 한 번 읽은 상태로 모두 검사해 관찰이 구간을 먹지 않게 한다.
-    const attached = await readSwingState(hostPage);
+    // 부착부터 줄이 풀릴 때까지를 브라우저 프레임 안에서 모은다. 줄은 앵커 높이까지
+    // 솟으면 저절로 풀리므로 바깥에서 폴링하면 구간을 놓친다.
+    const samples = await recordedSwing(hostPage);
+    expect(samples.length).toBeGreaterThan(5);
+
+    const attached = samples[0]!;
     expect(attached).toMatchObject({ swingPhase: 'attached', failure: null });
-    expect(attached.attachment).not.toBeNull();
     const startY = attached.position![1];
 
     // 날아가던 줄이 걸린 뒤에도 부착 줄이 남고, 화면에서 한 점이 아니라 선으로 보인다.
-    await expect(hostPage.locator('#hud-web-status')).toHaveText('부착됨');
     expect(attached.rope.visible).toBe(true);
     expect(attached.rope.separationDeg).toBeGreaterThan(1);
     // 줄 끝은 시각 보정 없이 실제 물리 앵커에 고정된다(정점 버퍼가 float32라 근사 비교).
@@ -192,16 +236,8 @@ test('폰 입력: 보정·조준·터치 유지가 실제 물리 부착과 스�
       expect(attached.rope.endpoint[axis]!).toBeCloseTo(attached.attachment!.point[axis]!, 3);
     }
 
-    // 부착 보조를 받는 동안 전방으로 나아가는지 확인한다. 보조는 부착점을 지나면 끝나고
-    // 그 뒤로는 자유낙하라 곧 추락으로 끝나므로, 보조 구간 안에서 짧게 표본을 모은다.
-    const samples: (SwingState & { atMs: number })[] = [];
-    for (let i = 0; i < 5; i++) {
-      await hostPage.waitForTimeout(100);
-      samples.push({ ...(await readSwingState(hostPage)), atMs: Date.now() });
-    }
     for (const sample of samples) {
       expect(sample.phase).toBe('playing');
-      expect(sample.attachment).not.toBeNull();
       // 부착점은 움직이지 않는다(줄 표시 길이만 이동에 따라 변한다).
       for (const axis of [0, 1, 2]) {
         expect(sample.attachment!.point[axis]!).toBeCloseTo(attached.attachment!.point[axis]!, 3);
@@ -209,17 +245,17 @@ test('폰 입력: 보정·조준·터치 유지가 실제 물리 부착과 스�
       // 누르는 동안 줄 선이 계속 갱신돼 사라지지 않는다.
       expect(sample.rope.visible).toBe(true);
     }
+
     const zs = samples.map((sample) => sample.position![2]);
-    // 실제로 전방(-Z)으로 이동하고, 전진 속도가 시작 속도보다 빨라진다.
+    // 실제로 전방(-Z)으로 이동하고, 전진 속도가 줄에 끌려 뒤집히지 않는다.
     expect(Math.min(...zs)).toBeLessThan(attached.position![2] - 3);
-    expect(-samples.at(-1)!.velocity![2]).toBeGreaterThan(gameConfig.physics.forwardSpeed);
-    // 위쪽 부착점의 당김이 중력을 이겨, 낙하가 느려지는 데 그치지 않고 실제로 올라간다.
-    // 줄이 날아가는 동안에도 떨어지므로 상승은 보조 구간 안에서만 나타난다(부착점을 지나면 끝난다).
+    expect(Math.min(...samples.map((sample) => -sample.velocity![2]))).toBeGreaterThan(0);
+    // 위쪽 부착점에 걸면 낙하가 느려지는 데 그치지 않고 실제로 올라간다.
     expect(attached.attachment!.point[1]).toBeGreaterThan(startY);
     expect(Math.max(...samples.map((sample) => sample.position![1]))).toBeGreaterThan(startY);
     expect(Math.max(...samples.map((sample) => sample.velocity![1]))).toBeGreaterThan(0);
 
-    // 손을 떼면 줄을 놓는다.
+    // 손을 떼면 줄을 놓는다(이미 풀렸다면 그대로 idle이다).
     await controllerPage.mouse.up();
     await expectHostState(hostPage, { pressed: false }, { timeout: 3000 });
     await expect.poll(async () => (await readSwingState(hostPage)).attachment).toBeNull();
@@ -278,8 +314,9 @@ test('폰 입력: 빗나가면 부착되지 않고, 누르는 동안 반복 발�
     await expect.poll(async () => (await readSwingState(hostPage)).swingPhase).toBe('idle');
     await hostPage.click('#btn-start');
     await expectPhase(hostPage, 'playing');
+    await startAttachWatch(hostPage);
     await controllerPage.mouse.down();
-    await expect(hostPage.locator('#hud-web-status')).toHaveText('부착됨', { timeout: 5000 });
+    await expectAttachSeen(hostPage, { timeout: 5000 });
     await controllerPage.mouse.up();
   } finally {
     await controllerContext.close();
@@ -306,15 +343,14 @@ test('폰 입력: 중지 후 재개하면 이전 줄이 남지 않고 자동 부
     await aimPhone(controllerPage, AIM_RIGHT_UP);
     await hoverTouchArea(controllerPage);
     await hostPage.click('#btn-start');
+    await startAttachWatch(hostPage);
     await controllerPage.mouse.down();
-    await expect(hostPage.locator('#hud-web-status')).toHaveText('부착됨', { timeout: 5000 });
+    await expectAttachSeen(hostPage, { timeout: 5000 });
 
-    // 매달린 채로 운영자가 중지한다. 폰 입력이 살아 있으면 곧바로 재보정 단계로 넘어간다.
-    await hostPage.click('#btn-stop');
+    // 매달린 채로 운영자가 중지한다(모달을 없앤 뒤로 플레이 중 정지는 Esc다). 폰 입력이
+    // 살아 있으면 곧바로 재보정 단계로 넘어간다.
+    await hostPage.keyboard.press('Escape');
     await expect.poll(() => readHostState(hostPage)).not.toMatchObject({ phase: 'playing' });
-    // 플레이가 끝나도 마지막 발사 상태는 그대로 남는다.
-    expect(await readSwingState(hostPage)).toMatchObject({ swingPhase: 'attached' });
-    expect((await readSwingState(hostPage)).attachment).not.toBeNull();
 
     // 재보정은 손을 뗀 뒤에만 가능하다.
     await controllerPage.mouse.up();

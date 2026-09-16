@@ -31,12 +31,14 @@ export class PhysicsWorld implements TargetQuery {
   private groundColliderHandles = new Set<number>();
   private buildingColliderHandles = new Set<number>();
   private chunkBodies = new Map<number, RAPIER.RigidBody[]>();
-  // 앵커는 좌표 데이터일 뿐이다. 줄 길이를 구속하지 않고(고정 길이 진자가 아니다), 부착 중에는
-  // 도로 전방 추진과 부착점 방향의 약한 당김만 더한다. assisting은 부착점을 지나가면 꺼지고
-  // 다시 켜지지 않는다(해제 전까지 줄은 그대로 보이지만 보조는 끝난다).
+  // 부착 중에는 두 가지가 함께 작동한다. 도로 전방 추진 보조(assisting은 부착점을 지나가면
+  // 꺼지고 다시 켜지지 않는다)와, 감겨 들어가는 줄의 구속(해제 전까지 계속 작동한다).
+  // 줄 구속이 바깥으로 멀어지는 속도를 잘라 내므로 앵커를 도는 호가 생긴다.
   private anchor: {
     point: Vec3;
     assisting: boolean;
+    ropeLengthM: number;
+    passedSec: number;
   } | null = null;
 
   private prevPosition: Vec3 = [0, 0, 0];
@@ -145,31 +147,29 @@ export class PhysicsWorld implements TargetQuery {
     return [v.x, v.y, v.z];
   }
 
-  // 부착 중 보조. 부착점을 중심으로 도는 진자 대신 도로 전방(-Z)으로 나아가게 하고, 부착점
-  // 방향으로 약하게 당긴다(조준 높이가 상하 궤적에 남는다). 속도만 더하므로 중력·충돌은 그대로다.
-  private applySwingAssist(dt: number): void {
+  // 부착 중 전방 보조. 도로 전방(-Z)으로 나아가게 하고 부착점 방향으로 약하게 당긴다
+  // (조준 높이가 상하 궤적에 남는다). 속도만 더하므로 중력·충돌은 그대로다.
+  private applyForwardAssist(dt: number): void {
     const anchor = this.anchor;
     if (!anchor || !anchor.assisting) return;
 
     const [px, py, pz] = this.getPlayerPosition();
-    // 부착점의 Z에 도달하면 이 부착의 보조는 끝난다. 뒤로 밀려도 다시 켜지 않는다.
     const forwardRemaining = pz - anchor.point[2];
+
+    // 부착점을 지나면 전진 성분만 잠시 남긴다. 앵커 방향 당김은 이제 뒤로 끌기 때문에 끄고,
+    // 남은 시간이 지나면 이 부착의 보조는 완전히 끝난다(뒤로 밀려도 다시 켜지 않는다).
     if (forwardRemaining <= 0) {
-      anchor.assisting = false;
+      anchor.passedSec += dt;
+      if (anchor.passedSec >= gameConfig.physics.assistTailSec) {
+        anchor.assisting = false;
+        return;
+      }
+      this.applyForwardGain((1 - anchor.passedSec / gameConfig.physics.assistTailSec) * dt);
       return;
     }
-    const fade = Math.min(1, forwardRemaining / gameConfig.physics.assistFadeDistanceM);
 
-    const velocity = this.getPlayerVelocity();
-    // 전방 보조는 목표 속도까지만 채운다. 이미 빠르면 감속시키지 않는다.
-    const forwardSpeed = -velocity[2];
-    const forwardGain = Math.max(
-      0,
-      Math.min(
-        gameConfig.physics.assistForwardAccel * fade * dt,
-        gameConfig.physics.assistForwardTargetSpeed - forwardSpeed,
-      ),
-    );
+    const fade = Math.min(1, forwardRemaining / gameConfig.physics.assistFadeDistanceM);
+    this.applyForwardGain(fade * dt);
 
     const dx = anchor.point[0] - px;
     const dy = anchor.point[1] - py;
@@ -177,18 +177,97 @@ export class PhysicsWorld implements TargetQuery {
     const distance = Math.hypot(dx, dy, dz);
     if (distance < 1e-6) return;
 
+    // 천장에 가까울수록 세로 당김을 줄인다(건물 위로 솟지 않게).
+    const headroom =
+      (gameConfig.physics.assistCeilingM - py) / gameConfig.physics.assistCeilingFadeM;
+    const altitudeScale = Math.max(0, Math.min(1, headroom));
+
     this.applyVelocityDelta([
       (dx / distance) * gameConfig.physics.assistLateralAccel * fade * dt,
-      (dy / distance) * gameConfig.physics.assistVerticalAccel * fade * dt,
-      -forwardGain,
+      (dy / distance) * gameConfig.physics.assistVerticalAccel * fade * altitudeScale * dt,
+      0,
     ]);
+  }
+
+  // 전방 보조는 목표 속도까지만 채운다. 이미 빠르면 감속시키지 않는다.
+  private applyForwardGain(scaledDt: number): void {
+    const forwardSpeed = -this.getPlayerVelocity()[2];
+    const gain = Math.max(
+      0,
+      Math.min(
+        gameConfig.physics.assistForwardAccel * scaledDt,
+        gameConfig.physics.assistForwardTargetSpeed - forwardSpeed,
+      ),
+    );
+    this.applyVelocityDelta([0, 0, -gain]);
+  }
+
+  // 줄 구속. 누르는 동안 줄을 감아 들이고, 줄보다 멀어지면 바깥으로 멀어지는 속도를 잘라 낸다.
+  // 남는 것은 앵커를 도는 접선 속도뿐이라 낙하가 호로 바뀌고, 반지름이 줄어드는 만큼 빨라진다.
+  // 당기기만 하고 밀지는 않으므로 줄이 느슨할 때는 자유비행 그대로다.
+  //
+  // 좌우(X)는 구속에서 뺀다. 앵커는 폭 24m 도로 양옆 벽면에 있어서, 3차원 그대로 당기면
+  // 줄이 플레이어를 자기가 붙은 벽으로 끌고 가 벽에 붙어 멈춘다(실제 플레이에서 확인했다).
+  // 상하·전후 평면의 진자로 두면 협곡 안에서 다이브와 상승만 남는다. 좌우는
+  // applyLateralContainment가 맡는다.
+  private applyRopeConstraint(dt: number): void {
+    const anchor = this.anchor;
+    if (!anchor) return;
+    const rope = gameConfig.physics.rope;
+    const [, py, pz] = this.getPlayerPosition();
+    // 줄은 내려가는 동안에만 감는다(그네를 구르는 것과 같다). 올라가는 동안에도 감으면
+    // 윈치처럼 앵커 위로 끌어올려 고도가 수백 m까지 치솟는다.
+    if (this.getPlayerVelocity()[1] <= 0) {
+      anchor.ropeLengthM = Math.max(rope.minLengthM, anchor.ropeLengthM - rope.reelSpeedMps * dt);
+    }
+    const dy = anchor.point[1] - py;
+    const dz = anchor.point[2] - pz;
+    const distance = Math.hypot(dy, dz);
+    const stretch = distance - anchor.ropeLengthM;
+    if (distance < 1e-6 || stretch <= 0) return;
+
+    const uy = dy / distance;
+    const uz = dz / distance;
+    const [, vy, vz] = this.getPlayerVelocity();
+    // 앵커에서 멀어지는 속도 성분. 양수일 때만 줄이 버틴다.
+    const outward = -(vy * uy + vz * uz);
+    const cut = outward > 0 ? outward * rope.tautVelocityRemoval : 0;
+    const restore = Math.min(stretch * rope.restoringAccelPerM, rope.maxRestoringAccel) * dt;
+    const gain = cut + restore;
+
+    // 진자는 전진 속도를 높이로 바꾼다(에너지 보존). 그대로 두면 정점에서 전진이 음수가 되어
+    // 앵커를 감고 도는데, 부스 관객은 대개 놓지 않는다. 줄이 전진을 바닥 밑으로 깎지는
+    // 못하게 막는다(더해 주는 것은 막지 않는다).
+    const zGain = Math.min(uz * gain, Math.max(0, -vz - rope.minForwardSpeedMps));
+    // 같은 이유로 상승 속도에도 상한을 둔다(하늘로 쏘아 올려지지 않게).
+    const yGain = Math.min(uy * gain, Math.max(0, rope.maxRiseSpeedMps - vy));
+
+    this.applyVelocityDelta([0, yGain, zGain]);
+  }
+
+  // 도로 폭이 24m라 진자를 그대로 두면 옆으로 밀려나 이탈로 끝난다. 부착 중에만 좌우 속도를
+  // 감쇠시키고 중앙으로 되돌려, 호가 주로 위아래로 그려지게 한다.
+  private applyLateralContainment(dt: number): void {
+    if (!this.anchor) return;
+    const rope = gameConfig.physics.rope;
+    const x = this.getPlayerPosition()[0];
+    const vx = this.getPlayerVelocity()[0];
+
+    const damping = -vx * Math.min(1, rope.lateralDampingPerSec * dt);
+    const centering =
+      -Math.sign(x) * Math.min(Math.abs(x) * rope.centeringAccelPerM, rope.maxCenteringAccel) * dt;
+
+    this.applyVelocityDelta([damping + centering, 0, 0]);
   }
 
   // 고정 60Hz accumulator가 호출하는 한 스텝. ARCHITECTURE 5절: 렌더링은 직전·현재 상태를 보간한다.
   step(): void {
     this.prevPosition = this.currPosition;
     // 적분 전에 더해야 Rapier가 보조를 반영한 속도로 한 스텝을 밟는다.
-    this.applySwingAssist(this.world.timestep);
+    // 줄 구속을 나중에 걸어 보조가 만든 속도까지 호로 꺾이게 한다.
+    this.applyForwardAssist(this.world.timestep);
+    this.applyRopeConstraint(this.world.timestep);
+    this.applyLateralContainment(this.world.timestep);
     this.world.step(this.eventQueue);
     this.currPosition = this.getPlayerPosition();
 
@@ -222,9 +301,16 @@ export class PhysicsWorld implements TargetQuery {
     ];
   }
 
-  // 부착점은 실제 맞은 지점 그대로다. 줄 길이는 저장하지 않는다(표시 길이는 플레이어 위치에 따라 변한다).
+  // 부착점은 실제 맞은 지점 그대로다. 줄 길이는 부착 순간의 거리에서 시작해 감겨 들어간다.
   attach(point: Vec3): void {
-    this.anchor = { point, assisting: true };
+    const [px, py, pz] = this.getPlayerPosition();
+    const distance = Math.hypot(point[0] - px, point[1] - py, point[2] - pz);
+    this.anchor = {
+      point,
+      assisting: true,
+      ropeLengthM: Math.max(gameConfig.physics.rope.minLengthM, distance),
+      passedSec: 0,
+    };
   }
 
   // 속도를 다시 설정하지 않는다(PRD PH-05: 해제 시 속도 보존).

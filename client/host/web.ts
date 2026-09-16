@@ -93,6 +93,8 @@ export class WebSwing {
   private tip: Vec3 = [0, 0, 0];
   private lastPressed = false;
   private failure: FireFailure | null = null;
+  // 부착 중인 앵커. 너무 멀어지면 줄이 끊긴다.
+  private anchorPoint: Vec3 | null = null;
 
   constructor(
     private query: TargetQuery,
@@ -182,6 +184,7 @@ export class WebSwing {
         this.failure = null;
         // 부착 거리는 표시·진단용이며, 실제 부착점은 줄 끝이 닿은 그 지점이다.
         callbacks.onAttach({ ...hit, distance: this.travelled });
+        this.anchorPoint = hit.point;
         this.phase = 'attached';
         return;
       }
@@ -196,7 +199,21 @@ export class WebSwing {
     if (this.phase === 'attached') {
       if (fallingEdge) {
         callbacks.onRelease();
+        this.anchorPoint = null;
         this.phase = 'idle';
+        return;
+      }
+      // 앵커 높이까지 솟아오르면 줄이 풀린다. 스윙 한 번이 '쏘고 → 내려가고 → 솟아오르고
+      // → 놓기'로 끝나고, 그 뒤로도 붙잡고 있을 때 뒤로 넘어간 앵커가 잡아당겨 전진이
+      // 멈추는 것을 막는다(실제 플레이에서 확인했다). 사거리보다 길어져도 같은 이유로 끊는다.
+      if (this.anchorPoint) {
+        const swungUp = origin[2] <= this.anchorPoint[2] && origin[1] >= this.anchorPoint[1];
+        const overStretched = length(subtract(origin, this.anchorPoint)) > this.options.maxDistance;
+        if (swungUp || overStretched) {
+          callbacks.onRelease();
+          this.anchorPoint = null;
+          this.phase = 'idle';
+        }
       }
       return;
     }
@@ -214,6 +231,7 @@ export class WebSwing {
     this.travelled = 0;
     this.lastPressed = currentlyPressed;
     this.failure = null;
+    this.anchorPoint = null;
   }
 
   // 마지막 발사가 부착에 실패한 이유. 부착에 성공하면 null이 된다.

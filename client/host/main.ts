@@ -31,12 +31,20 @@ import {
   createPlayerMesh,
   saggedPath,
   createScene,
+  createSpeedLines,
   showAttachFlashAt,
   updateAttachFlash,
   updateCameraPosition,
+  updateSpeedLines,
   updateWebSplat,
   updateWebStrand,
 } from './scene';
+import {
+  groundWarningStrength,
+  initialCameraFeel,
+  speedRatioFor,
+  updateCameraFeel,
+} from './cameraFeel';
 import { isMouseInputEnabled, MouseAimInput } from './mouseInput';
 import { PhysicsWorld, type Vec3 } from './physics';
 import { ChunkedWorld, chunkIndexForZ, chunkBuildingColliders } from './world';
@@ -60,6 +68,9 @@ const hudSpeed = document.getElementById('hud-speed') as HTMLElement;
 const hudStall = document.getElementById('hud-stall') as HTMLElement;
 const hudStallLeft = document.getElementById('hud-stall-left') as HTMLElement;
 const hudWebStatus = document.getElementById('hud-web-status') as HTMLElement;
+const hudNearGround = document.getElementById('hud-near-ground') as HTMLElement;
+const hudNearBonus = document.getElementById('hud-near-bonus') as HTMLElement;
+const groundVignette = document.getElementById('ground-vignette') as HTMLElement;
 const btnCalibrate = document.getElementById('btn-calibrate') as HTMLButtonElement;
 const btnStart = document.getElementById('btn-start') as HTMLButtonElement;
 const btnMute = document.getElementById('btn-mute') as HTMLButtonElement;
@@ -129,6 +140,7 @@ const fireStrand = createWebStrand(sceneHandle.scene);
 const attachFlash = createAttachFlash(sceneHandle.scene);
 const webSplat = createWebSplat(sceneHandle.scene);
 const chunkMeshes = createChunkMeshes(sceneHandle.scene);
+const speedLines = createSpeedLines(sceneHandle.scene);
 const progress = new Progress();
 const sfx = new SfxPlayer();
 
@@ -137,6 +149,9 @@ const swingOptions = defaultSwingOptions();
 
 // 부착 순간에만 한 번 재생하는 짧은 원형 플래시(중복 방지: attachFlashStartMs로 진행 중 여부 판단).
 let attachFlashStartMs: number | null = null;
+
+// 속도·스윙 방향·지면 근접을 화면에 남기는 카메라 상태(시야각·기울기·흔들림).
+let cameraFeel = initialCameraFeel();
 
 // 걸리지 못한 거미줄. 최대 사거리에서 끊긴 뒤에도 같은 방향으로 계속 날아가며 흐려진다.
 let missBeam: { path: Vec3[]; direction: Vec3; startedAtMs: number } | null = null;
@@ -497,6 +512,8 @@ function stepPhysicsFixed(nowSec: number) {
       physics?.detach();
       attachedPoint = null;
       sfx.playRelease();
+      // 손을 뗀 해제가 아니라 줄이 저절로 풀린 경우에만 안내한다.
+      rearmHintUntilMs = pressed ? performance.now() + gameConfig.effects.rearmHintMs : null;
     },
   });
   physics.step();
@@ -507,7 +524,13 @@ function stepPhysicsFixed(nowSec: number) {
   }
 
   // 점수·정체는 실제 수행한 물리 step으로만 증가한다(ARCHITECTURE 5절).
-  progress.step(gameConfig.physics.fixedTimestepSec, physics.getPlayerPosition()[2]);
+  const [, playerY, playerZ] = physics.getPlayerPosition();
+  progress.step(
+    gameConfig.physics.fixedTimestepSec,
+    playerZ,
+    playerY,
+    magnitude(physics.getPlayerVelocity()),
+  );
   if (progress.stallState === 'ended') endRun('stalled');
 }
 
@@ -517,6 +540,10 @@ function updateHud(speedMs: number | null) {
   const warning = phase === 'playing' && progress.stallState === 'warning';
   hudStall.hidden = !warning;
   if (warning) hudStallLeft.textContent = progress.stallSecondsLeft.toFixed(1);
+
+  const nearGround = phase === 'playing' && progress.isNearGround;
+  hudNearGround.hidden = !nearGround;
+  if (nearGround) hudNearBonus.textContent = String(progress.bonusScore);
 }
 
 // 화면 위 발사 상태 표시. '부착됨'은 실제 물리 부착에서만 켜서 빗나감 연출과 혼동하지 않게 한다.
@@ -524,9 +551,16 @@ const WEB_STATUS_MESSAGES = {
   firing: '발사 중',
   attached: '부착됨',
   missed: '빗나감',
+  rearm: '손을 떼고 다시 누르세요',
 } as const;
 
+// 앵커를 지나 줄이 저절로 풀렸는데 손은 그대로인 상태. 다음 발사는 다시 누를 때 나가므로
+// 그 사실을 화면에 알려 준다(부스에서 처음 잡는 사람이 가장 많이 막히는 지점이다).
+let rearmHintUntilMs: number | null = null;
+
 function updateWebStatus() {
+  const showRearmHint =
+    rearmHintUntilMs !== null && performance.now() < rearmHintUntilMs && pressed;
   const state =
     phase !== 'playing' || !swing
       ? null
@@ -536,7 +570,9 @@ function updateWebStatus() {
           ? 'firing'
           : swing.phase === 'releasedRequired'
             ? 'missed'
-            : null;
+            : showRearmHint
+              ? 'rearm'
+              : null;
   hudWebStatus.hidden = state === null;
   if (state !== null) {
     hudWebStatus.dataset.state = state;
@@ -594,11 +630,30 @@ function frameLoop(nowMs: number) {
   updateWebStatus();
 
   if (physics) {
+    cameraFeel = updateCameraFeel(cameraFeel, {
+      speedMs: playerSpeed ?? 0,
+      anchorOffsetM:
+        phase === 'playing' && attachedPoint
+          ? attachedPoint[0] - physics.getPlayerPosition()[0]
+          : null,
+      altitudeM: physics.getPlayerPosition()[1],
+      attachElapsedMs: attachFlashStartMs === null ? null : nowMs - attachFlashStartMs,
+      nowMs,
+      dtSec,
+    });
+
     const alpha =
       phase === 'playing' ? physicsAccumulatorSec / gameConfig.physics.fixedTimestepSec : 1;
     const renderPos = physics.interpolatedPosition(Math.min(1, Math.max(0, alpha)));
     playerMesh.position.set(...renderPos);
-    updateCameraPosition(sceneHandle.camera, renderPos);
+    updateCameraPosition(sceneHandle.camera, renderPos, cameraFeel);
+
+    // 속도선과 지면 경고는 플레이 중에만 보인다.
+    const speedRatio = phase === 'playing' ? speedRatioFor(playerSpeed ?? 0) : 0;
+    updateSpeedLines(speedLines, renderPos, speedRatio, dtSec, playerSpeed ?? 0);
+    groundVignette.style.opacity = String(
+      phase === 'playing' ? groundWarningStrength(renderPos[1]) : 0,
+    );
     updateWebStrand(
       ropeStrand,
       attachedPoint ? saggedPath(renderPos, attachedPoint) : null,

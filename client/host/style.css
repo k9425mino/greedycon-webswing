@@ -66,6 +66,19 @@ body {
   pointer-events: none;
 }
 
+/* 지면 근접 경고. 캔버스 위에 겹치며 입력을 막지 않는다. */
+#ground-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(255, 60, 60, 0) 45%,
+    rgba(255, 40, 40, 0.75) 100%
+  );
+}
+
 #hud {
   position: absolute;
   top: 16px;
@@ -83,6 +96,13 @@ body {
 #hud-speed {
   font-size: 16px;
   color: #bbb;
+}
+
+#hud-near-ground {
+  margin-top: 8px;
+  font-size: 20px;
+  font-weight: 700;
+  color: #ffd866;
 }
 
 #hud-stall {

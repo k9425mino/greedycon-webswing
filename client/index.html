@@ -18,9 +18,12 @@
           data-onscreen="true"
         ></div>
         <div id="target-marker" class="target-marker" hidden></div>
+        <!-- 지면에 가까울수록 진해지는 가장자리 경고. 아슬아슬함을 화면으로 알려 준다. -->
+        <div id="ground-vignette"></div>
         <div id="hud">
           <div id="hud-score">0</div>
           <div id="hud-speed">0 m/s</div>
+          <div id="hud-near-ground" hidden>아슬아슬 +<span id="hud-near-bonus">0</span></div>
           <div id="hud-stall" hidden>전진하세요 <span id="hud-stall-left">0.0</span>초</div>
           <div id="hud-web-status" hidden></div>
         </div>

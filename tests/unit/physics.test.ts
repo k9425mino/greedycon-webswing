@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { gameConfig } from '@shared/config';
 import { defaultSwingOptions, selectTarget } from '../../client/host/web';
-import { isOutsideRoad, PhysicsWorld, type BoxSpec } from '../../client/host/physics';
+import { isOutsideRoad, PhysicsWorld, type BoxSpec, type Vec3 } from '../../client/host/physics';
 
 function road(lengthZ: number, centerZ: number): BoxSpec {
   return { center: [0, -0.5, centerZ], halfExtents: [12, 0.5, lengthZ / 2] };
@@ -86,6 +86,12 @@ describe('부착 중 전방 보조와 당김', () => {
     return physics;
   }
 
+  function directionFrom(from: Vec3, to: Vec3): Vec3 {
+    const delta: Vec3 = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+    const length = Math.hypot(...delta) || 1;
+    return [delta[0] / length, delta[1] / length, delta[2] / length];
+  }
+
   // 한 스텝의 속도 변화만 보는 경우. 초기 속도를 0으로 둬 보조 성분을 그대로 읽는다.
   async function oneStepDelta(anchor: [number, number, number], from: [number, number, number]) {
     const physics = await PhysicsWorld.create();
@@ -101,7 +107,8 @@ describe('부착 중 전방 보조와 당김', () => {
   }
 
   it('전진 속도를 목표까지 올리고 그 위로는 가속하지 않는다', async () => {
-    const physics = await run(true, 600); // 10초
+    // 보조는 부착점을 지나면 끝나므로, 10초 내내 보조가 유지되는 먼 앵커로 본다.
+    const physics = await run(true, 600, [12, 34, -300]);
     const forwardSpeed = -physics.getPlayerVelocity()[2];
     expect(forwardSpeed).toBeCloseTo(gameConfig.physics.assistForwardTargetSpeed, 3);
     physics.dispose();
@@ -138,8 +145,9 @@ describe('부착 중 전방 보조와 당김', () => {
 
   it('부착점 앞 5m 안에서는 보조가 선형으로 줄어든다', async () => {
     const fade = gameConfig.physics.assistFadeDistanceM;
-    // 정면 부착점이라 좌우·상하 성분 없이 전방 보조만 남는다.
-    const far = await oneStepDelta([0, 18, -4 * fade], START);
+    // 정면 부착점이라 좌우·상하 성분 없이 전방 보조만 남는다. 두 앵커 모두 줄 길이 하한
+    // 안쪽이라 줄 구속은 조용하고, 전방 보조만 그대로 읽힌다.
+    const far = await oneStepDelta([0, 18, -gameConfig.physics.rope.minLengthM + 1], START);
     const near = await oneStepDelta([0, 18, -fade / 2], START);
 
     expect(-far.vz).toBeCloseTo(gameConfig.physics.assistForwardAccel * DT, 6);
@@ -202,15 +210,56 @@ describe('부착 중 전방 보조와 당김', () => {
     }
   });
 
-  it('높은 부착점에 걸면 0.5초 안에 실제로 올라간다', async () => {
+  it('높은 부착점에 걸면 0.5초 안에 상승으로 돌아서고 1초 안에 실제로 올라간다', async () => {
     // 낙하 지연이 아니라 상승인지 본다. 충돌·페이드가 끼어들지 않는 먼 부착점이다.
-    const physics = await run(true, 30, [12, 42, -40]);
-    const [, y] = physics.getPlayerPosition();
-    const vy = physics.getPlayerVelocity()[1];
-    physics.dispose();
+    const turning = await run(true, 30, [12, 42, -40]);
+    expect(turning.getPlayerVelocity()[1]).toBeGreaterThan(0);
+    turning.dispose();
 
+    const risen = await run(true, 60, [12, 42, -40]);
+    const [, y] = risen.getPlayerPosition();
     expect(y).toBeGreaterThan(START[1] + 1);
-    expect(vy).toBeGreaterThan(0);
+    expect(risen.getPlayerVelocity()[1]).toBeGreaterThan(0);
+    risen.dispose();
+  });
+
+  // --- 줄 구속 (진자) ---
+
+  it('줄보다 멀어지려는 속도를 잘라 앵커를 도는 호로 바꾼다', async () => {
+    const anchor: Vec3 = [0, 60, -20];
+    const physics = await PhysicsWorld.create();
+    physics.addChunk(0, FAR_ROAD, []);
+    physics.createPlayer(START);
+    // 부착 순간의 거리가 줄 길이다. 여기서 앵커 반대 방향으로 곧장 멀어지려 하면 줄이 버틴다.
+    physics.attach(anchor);
+    const away = directionFrom(anchor, START);
+    physics.setPlayerVelocity([away[0] * 20, away[1] * 20, away[2] * 20]);
+    physics.step();
+
+    const [vx, vy, vz] = physics.getPlayerVelocity();
+    const outward = vx * away[0] + vy * away[1] + vz * away[2];
+    // 바깥 방향 성분만 대부분 사라지고, 앵커까지의 거리는 줄 길이 근처에 머문다.
+    expect(outward).toBeLessThan(20 * (1 - gameConfig.physics.rope.tautVelocityRemoval) + 0.5);
+    expect(physics.attachment!.distance).toBeLessThan(47);
+    physics.dispose();
+  });
+
+  it('줄은 전진 속도를 바닥 밑으로 깎지 않는다', async () => {
+    // 옆 벽면에 걸고 놓지 않는다. 진자가 전진을 전부 높이로 바꾸면 전진이 음수가 된다.
+    const physics = await run(true, 60 * 6, [16, 50, -45]);
+    expect(-physics.getPlayerVelocity()[2]).toBeGreaterThanOrEqual(
+      gameConfig.physics.rope.minForwardSpeedMps - 1e-6,
+    );
+    physics.dispose();
+  });
+
+  it('계속 붙잡고 있어도 건물 위 하늘로 솟지 않는다', async () => {
+    // 줄은 내려가는 동안에만 감기고 상승 속도에도 상한이 있다. 이게 없으면 놓지 않는
+    // 사람이 고도 120m까지 올라가 빈 하늘에서 판이 끝난다.
+    const physics = await run(true, 60 * 6, [16, 50, -45]);
+    const [, y] = physics.getPlayerPosition();
+    expect(y).toBeLessThan(gameConfig.world.buildingHeightRangeM[1]! + 20);
+    physics.dispose();
   });
 
   it('부착 직후 0.5초 안에 전진 속도가 뚜렷하게 오른다', async () => {

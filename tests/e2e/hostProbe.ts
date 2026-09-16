@@ -25,6 +25,20 @@ const PROBE_SOURCE = `
   }
 `;
 
+// 줄은 앵커 높이까지 솟으면 저절로 풀린다. 부착 구간이 짧아 폴링으로는 놓칠 수 있으므로
+// 프레임마다 확인해 한 번이라도 부착했는지를 남긴다.
+const ATTACH_WATCH_SOURCE = `
+  export function watchAttach() {
+    const data = document.documentElement.dataset;
+    delete data.sawAttach;
+    function look() {
+      if (attachedPoint !== null) data.sawAttach = 'true';
+      requestAnimationFrame(look);
+    }
+    requestAnimationFrame(look);
+  }
+`;
+
 export type HostState = {
   phase: string;
   physicsReady: boolean;
@@ -47,7 +61,10 @@ export type HostState = {
 export async function installHostProbe(page: Page, extraSource = ''): Promise<void> {
   await page.route('**/host/main.ts', async (route) => {
     const response = await route.fetch();
-    await route.fulfill({ response, body: (await response.text()) + PROBE_SOURCE + extraSource });
+    await route.fulfill({
+      response,
+      body: (await response.text()) + PROBE_SOURCE + ATTACH_WATCH_SOURCE + extraSource,
+    });
   });
 }
 
@@ -61,6 +78,18 @@ export function readHostState(page: Page): Promise<HostState> {
 // 플레이 중 상태는 빠르게 지나간다. 기본 폴링 간격(100ms부터 배로 늘어남)으로는 놓치므로
 // 로케이터 검사와 비슷한 간격으로 고정한다.
 const POLL_INTERVALS = [50, 50, 100];
+
+// 부착 관찰을 시작한다. 이후 expectAttachSeen으로 한 번이라도 부착했는지 확인한다.
+export async function startAttachWatch(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const path = '/host/main.ts';
+    (await import(path)).watchAttach();
+  });
+}
+
+export async function expectAttachSeen(page: Page, options?: { timeout?: number }): Promise<void> {
+  await expect(page.locator('html')).toHaveAttribute('data-saw-attach', 'true', options);
+}
 
 export async function expectHostState(
   page: Page,

@@ -8,6 +8,7 @@ import { createGwanggaeto } from './models/gwanggaeto';
 import { createNaver } from './models/naver';
 import { createOffice, OFFICE_KINDS } from './models/office';
 import { createDeformableWebSilk } from './models/webSilk';
+import type { CameraFeelState } from './cameraFeel';
 
 export function createScene(canvas: HTMLCanvasElement) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -454,6 +455,69 @@ export function saggedPath(from: Vec3, to: Vec3, samples = 8): Vec3[] {
   return points;
 }
 
+// 카메라 주위를 스쳐 지나가는 속도선. 숫자 대신 화면으로 속도를 보여 준다. 선은 플레이어
+// 기준 국소 좌표에 흩어 두고 뒤로 흘려보내며, 끝까지 간 선은 앞쪽으로 되돌린다.
+export function createSpeedLines(scene: THREE.Scene) {
+  const { speedLineCount, speedLineRadiusRangeM, speedLineSpanM } = gameConfig.camera;
+  const random = mulberry32(20260917);
+  // zM은 플레이어 기준 상대 위치다. 음수가 앞쪽(-Z)이고, 뒤로 흘러 +쪽으로 간다.
+  const seeds = Array.from({ length: speedLineCount }, () => ({
+    angle: random() * Math.PI * 2,
+    radiusM:
+      speedLineRadiusRangeM[0] + random() * (speedLineRadiusRangeM[1] - speedLineRadiusRangeM[0]),
+    zM: -speedLineSpanM * random(),
+  }));
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    'position',
+    new THREE.BufferAttribute(new Float32Array(speedLineCount * 6), 3),
+  );
+  const material = new THREE.LineBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+  });
+  const lines = new THREE.LineSegments(geometry, material);
+  // 선은 카메라 바로 옆을 지나므로 절두체 판정으로 통째로 사라지지 않게 한다.
+  lines.frustumCulled = false;
+  lines.visible = false;
+  scene.add(lines);
+  return { lines, material, seeds };
+}
+
+export type SpeedLines = ReturnType<typeof createSpeedLines>;
+
+// speedRatio 0이면 숨기고, 1에 가까울수록 진하고 길게 그린다.
+export function updateSpeedLines(
+  handle: SpeedLines,
+  playerPosition: Vec3,
+  speedRatio: number,
+  dtSec: number,
+  speedMs: number,
+): void {
+  const { speedLineSpanM, speedLineMaxOpacity } = gameConfig.camera;
+  const clamped = Math.max(0, Math.min(1, speedRatio));
+  handle.material.opacity = speedLineMaxOpacity * clamped;
+  handle.lines.visible = clamped > 0.01;
+  if (!handle.lines.visible) return;
+
+  const lengthM = 2 + 10 * clamped;
+  const positions = handle.lines.geometry.getAttribute('position') as THREE.BufferAttribute;
+  handle.seeds.forEach((seed, i) => {
+    seed.zM += speedMs * dtSec;
+    // 카메라를 지나 뒤로 흐른 선은 다시 앞쪽 끝으로 보낸다.
+    if (seed.zM > 6) seed.zM -= speedLineSpanM + 6;
+    const x = playerPosition[0] + Math.cos(seed.angle) * seed.radiusM;
+    const y = playerPosition[1] + Math.sin(seed.angle) * seed.radiusM;
+    const z = playerPosition[2] + seed.zM;
+    positions.setXYZ(i * 2, x, y, z);
+    positions.setXYZ(i * 2 + 1, x, y, z + lengthM);
+  });
+  positions.needsUpdate = true;
+}
+
 // 부착 중 건물 표면에 남는 거미줄 자국.
 export function createWebSplat(scene: THREE.Scene): THREE.Mesh {
   const mesh = new THREE.Mesh(webSplatGeometry, webSplatMaterial);
@@ -498,7 +562,22 @@ export function updateAttachFlash(mesh: THREE.Mesh, progress: number): void {
 }
 
 // 카메라는 플레이어 위치를 따라가되 회전은 물려받지 않는다(ARCHITECTURE 5절: 항상 도로 전방).
-export function updateCameraPosition(camera: THREE.PerspectiveCamera, playerPosition: Vec3): void {
-  camera.position.set(playerPosition[0], playerPosition[1], playerPosition[2]);
+// 바라보는 방향은 항상 도로 전방(-Z)이다. 조준은 폰이 하므로 시선까지 움직이면 조준점이
+// 화면 밖으로 밀려난다. 속도감은 시야각·기울기·흔들림으로만 준다.
+export function updateCameraPosition(
+  camera: THREE.PerspectiveCamera,
+  playerPosition: Vec3,
+  feel?: CameraFeelState,
+): void {
+  const [shakeX, shakeY] = feel?.shakeM ?? [0, 0];
+  camera.position.set(playerPosition[0] + shakeX, playerPosition[1] + shakeY, playerPosition[2]);
+  const roll = feel?.rollRad ?? 0;
+  camera.up.set(Math.sin(roll), Math.cos(roll), 0);
   camera.lookAt(playerPosition[0], playerPosition[1], playerPosition[2] - 1);
+
+  const fovDeg = feel?.fovDeg ?? gameConfig.cameraVerticalFovDeg;
+  if (camera.fov !== fovDeg) {
+    camera.fov = fovDeg;
+    camera.updateProjectionMatrix();
+  }
 }

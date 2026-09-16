@@ -3,9 +3,11 @@ import { gameConfig } from '../../shared/config';
 import { Progress } from '../../client/host/progress';
 
 const dt = gameConfig.physics.fixedTimestepSec;
+// 지면 근접 보너스가 끼어들지 않는 높이.
+const HIGH = gameConfig.progress.nearGroundHeightM + 10;
 
 function stepFor(progress: Progress, seconds: number, playerZ: number) {
-  for (let i = 0; i < Math.round(seconds / dt); i++) progress.step(dt, playerZ);
+  for (let i = 0; i < Math.round(seconds / dt); i++) progress.step(dt, playerZ, HIGH, 0);
 }
 
 describe('Progress', () => {
@@ -15,7 +17,7 @@ describe('Progress', () => {
     expect(progress.score).toBe(0);
 
     // 1초 동안 전진하며 진행. 점수는 실제 시계가 아니라 수행한 step 수로만 정해진다.
-    for (let i = 0; i < 60; i++) progress.step(dt, -i);
+    for (let i = 0; i < 60; i++) progress.step(dt, -i, HIGH, 0);
     expect(progress.score).toBe(gameConfig.progress.scorePerSecond);
     expect(progress.elapsedSeconds).toBeCloseTo(1, 5);
   });
@@ -26,7 +28,7 @@ describe('Progress', () => {
 
     stepFor(progress, 4, 0);
     expect(progress.stallState).toBe('ok');
-    progress.step(dt, -gameConfig.progress.stallResetDistanceM);
+    progress.step(dt, -gameConfig.progress.stallResetDistanceM, HIGH, 0);
     stepFor(progress, 4, -gameConfig.progress.stallResetDistanceM);
     // 초기화되었으므로 누적 8초가 지나도 종료가 아니다
     expect(progress.stallState).toBe('ok');
@@ -67,5 +69,46 @@ describe('Progress', () => {
     progress.reset(-100);
     expect(progress.score).toBe(0);
     expect(progress.stallState).toBe('ok');
+  });
+});
+
+describe('지면 근접 보너스', () => {
+  const low = gameConfig.progress.nearGroundHeightM / 2;
+  const fast = gameConfig.progress.nearGroundMinSpeedMs;
+
+  it('낮고 빠르게 지나가는 동안에만 쌓인다', () => {
+    const progress = new Progress();
+    progress.reset(0);
+    for (let i = 0; i < 60; i++) progress.step(dt, -i, low, fast);
+    expect(progress.bonusScore).toBeGreaterThan(0);
+    expect(progress.isNearGround).toBe(true);
+
+    const slow = new Progress();
+    slow.reset(0);
+    for (let i = 0; i < 60; i++) slow.step(dt, -i, low, fast - 1);
+    expect(slow.bonusScore).toBe(0);
+    expect(slow.isNearGround).toBe(false);
+
+    const high = new Progress();
+    high.reset(0);
+    for (let i = 0; i < 60; i++) high.step(dt, -i, HIGH, fast);
+    expect(high.bonusScore).toBe(0);
+  });
+
+  it('낮을수록 크게 주고 점수와 재시작에 반영된다', () => {
+    const lower = new Progress();
+    lower.reset(0);
+    for (let i = 0; i < 60; i++) lower.step(dt, -i, 1, fast);
+
+    const higher = new Progress();
+    higher.reset(0);
+    for (let i = 0; i < 60; i++) higher.step(dt, -i, low, fast);
+
+    expect(lower.bonusScore).toBeGreaterThan(higher.bonusScore);
+    expect(lower.score).toBe(gameConfig.progress.scorePerSecond + lower.bonusScore);
+
+    lower.reset(0);
+    expect(lower.bonusScore).toBe(0);
+    expect(lower.isNearGround).toBe(false);
   });
 });
