@@ -6,10 +6,18 @@ import { landmarkColliders } from '../../client/host/models/landmarkPlacement';
 import { createChunkMeshes } from '../../client/host/scene';
 import { PhysicsWorld } from '../../client/host/physics';
 
+function landmarkChunk(kind: string, index: number) {
+  for (let seed = 0; seed < 1000; seed++) {
+    const chunk = buildChunk(index, seed);
+    if (chunk.landmark?.kind === kind && chunk.landmark.side === 1) return chunk;
+  }
+  throw new Error(`랜드마크 테스트 배치 없음: ${kind}`);
+}
+
 it('탑 벽에는 거미줄이 맞고 예배당 위 빈 공간과 회수한 구간에는 맞지 않는다', async () => {
   const physics = await PhysicsWorld.create();
   try {
-    const chunk = buildChunk(2);
+    const chunk = landmarkChunk('aejiheon', 2);
     const placement = chunk.landmark!;
     const z = placement.position[2];
     const colliders = landmarkColliders(placement);
@@ -28,7 +36,7 @@ it('탑 벽에는 거미줄이 맞고 예배당 위 빈 공간과 회수한 구�
   }
 });
 
-it('드문 간격으로 좌우를 교대하고 탑 정면은 항상 도로를 향한다', () => {
+it('무작위 랜드마크도 도로를 향하고 구간 경계와 주변 건물을 침범하지 않는다', () => {
   const indices: number[] = [];
   for (let index = -2; index < 23; index++) {
     const chunk = buildChunk(index);
@@ -36,9 +44,6 @@ it('드문 간격으로 좌우를 교대하고 탑 정면은 항상 도로를 �
     indices.push(index);
     expect(chunk).toEqual(buildChunk(index));
     const { side, position } = chunk.landmark;
-    expect(chunk.landmark.kind).toBe(
-      ['aejiheon', 'daeyang-ai', 'gwanggaeto', 'naver'][(indices.length - 1) % 4],
-    );
     const front = new THREE.Vector3(0, 0, 1).applyAxisAngle(
       new THREE.Vector3(0, 1, 0),
       (-side * Math.PI) / 2,
@@ -71,7 +76,7 @@ it('드문 간격으로 좌우를 교대하고 탑 정면은 항상 도로를 �
 it('랜드마크 구간을 회수·재생성해도 모델 자원을 재사용한다', () => {
   const scene = new THREE.Scene();
   const chunks = createChunkMeshes(scene);
-  const chunk = buildChunk(2);
+  const chunk = landmarkChunk('aejiheon', 2);
   chunks.add(chunk);
   const first = scene.getObjectByName('Daeyang Tower')!.children[0] as THREE.Mesh;
   const geometry = first.geometry;
@@ -87,7 +92,7 @@ it('랜드마크 구간을 회수·재생성해도 모델 자원을 재사용한
 });
 
 it('네이버 사옥이 게임에 생성되고 유리 외벽에 거미줄이 맞으며 구간 회수 시 제거된다', async () => {
-  const chunk = buildChunk(14);
+  const chunk = landmarkChunk('naver', 14);
   expect(chunk.landmark?.kind).toBe('naver');
   const scene = new THREE.Scene();
   const chunks = createChunkMeshes(scene);

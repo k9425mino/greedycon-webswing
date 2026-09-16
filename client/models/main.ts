@@ -4,6 +4,7 @@ import { createAejiheon } from '../host/models/aejiheon';
 import { createDaeyangAi } from '../host/models/daeyangAi';
 import { createGwanggaeto } from '../host/models/gwanggaeto';
 import { createNaver } from '../host/models/naver';
+import { createOffice } from '../host/models/office';
 import { createWebSilk } from '../host/models/webSilk';
 
 type View = { position: [number, number, number]; target: [number, number, number] };
@@ -20,6 +21,25 @@ type Preset = {
 };
 
 const presets: Record<string, Preset> = {
+  offices: {
+    title: '현대적인 오피스 3종',
+    eyebrow: 'CITY / GLASS OFFICES',
+    description: '블루 커튼월 · 실버 수직 프레임 · 그래파이트 벨트 타워',
+    detailLabel: '외벽 확대',
+    narrowFov: 70,
+    create: () => {
+      const group = new THREE.Group();
+      (['azure', 'silver', 'graphite'] as const).forEach((kind, index) => {
+        const office = createOffice(kind);
+        office.position.x = (index - 1) * 23;
+        group.add(office);
+      });
+      return group;
+    },
+    overview: { position: [86, 58, 139], target: [0, 29, 0] },
+    front: { position: [0, 31, 145], target: [0, 30, 0] },
+    detail: { position: [42, 25, 42], target: [8, 24, 0] },
+  },
   naver: {
     title: '네이버 사옥',
     eyebrow: 'NAVER / GREEN FACTORY',

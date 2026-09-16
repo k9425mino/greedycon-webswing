@@ -1,5 +1,6 @@
 import { gameConfig } from '@shared/config';
 import type { BoxSpec, Vec3 } from './physics';
+import { OFFICE_KINDS, type OfficeKind } from './models/office';
 import {
   AEJIHEON_BOUNDS,
   DAEYANG_AI_BOUNDS,
@@ -12,7 +13,7 @@ import {
 export type Chunk = {
   index: number;
   road: BoxSpec;
-  buildings: BoxSpec[];
+  buildings: (BoxSpec & { style: OfficeKind })[];
   landmark?: LandmarkPlacement;
 };
 
@@ -35,7 +36,7 @@ const LANDMARK_BOUNDS = {
   naver: NAVER_BOUNDS,
 };
 
-// 고정 seed 난수. 구간 index만으로 배치가 정해져 생성 순서와 무관하게 재현된다(ARCHITECTURE 5절).
+// 게임 seed와 구간 index로 재현해 회수된 구간에 돌아와도 같은 배치를 유지한다.
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -47,8 +48,8 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-function chunkRandom(index: number): () => number {
-  return mulberry32((gameConfig.world.seed ^ Math.imul(index, 0x9e3779b9)) >>> 0);
+function chunkRandom(index: number, seed: number): () => number {
+  return mulberry32((seed ^ Math.imul(index, 0x9e3779b9)) >>> 0);
 }
 
 export function chunkIndexForZ(z: number): number {
@@ -56,7 +57,7 @@ export function chunkIndexForZ(z: number): number {
 }
 
 // 구간 index의 z 범위는 [-(index+1)*L, -index*L]이다. 전방은 -Z(ARCHITECTURE 5절).
-export function buildChunk(index: number): Chunk {
+export function buildChunk(index: number, seed: number = gameConfig.world.seed): Chunk {
   const {
     roadWidthM,
     buildingSetbackM,
@@ -67,12 +68,12 @@ export function buildChunk(index: number): Chunk {
     buildingGapRangeM,
   } = gameConfig.world;
 
-  const random = chunkRandom(index);
+  const random = chunkRandom(index, seed);
   const startZ = -index * chunkLengthM;
   const endZ = -(index + 1) * chunkLengthM;
   const buildingCenterX = roadWidthM / 2 + buildingSetbackM + buildingHalfWidthXM;
 
-  const buildings: BoxSpec[] = [];
+  const buildings: Chunk['buildings'] = [];
 
   for (const side of [-1, 1] as const) {
     let cursorZ = startZ - random() * buildingGapRangeM[1];
@@ -83,6 +84,7 @@ export function buildChunk(index: number): Chunk {
       buildings.push({
         center: [side * buildingCenterX, height / 2, centerZ],
         halfExtents: [buildingHalfWidthXM, height / 2, buildingDepthM / 2],
+        style: OFFICE_KINDS[Math.floor(random() * OFFICE_KINDS.length)]!,
       });
       const gap = buildingGapRangeM[0] + random() * (buildingGapRangeM[1] - buildingGapRangeM[0]);
       cursorZ = centerZ - buildingDepthM / 2 - gap;
@@ -93,9 +95,8 @@ export function buildChunk(index: number): Chunk {
   const occurrence =
     (index - gameConfig.world.landmarkFirstChunk) / gameConfig.world.landmarkEveryChunks;
   if (Number.isInteger(occurrence) && occurrence >= 0) {
-    const kind = LANDMARK_ORDER[occurrence % LANDMARK_ORDER.length]!;
-    // 랜드마크가 등장할 때마다 도로의 좌우를 바꾼다.
-    const side = occurrence % 2 === 0 ? 1 : -1;
+    const kind = LANDMARK_ORDER[Math.floor(random() * LANDMARK_ORDER.length)]!;
+    const side = random() < 0.5 ? -1 : 1;
     const bounds = LANDMARK_BOUNDS[kind];
     const scale = gameConfig.world.landmarkScale[kind];
     const centerZ = (startZ + endZ) / 2 - (side * (bounds.minX + bounds.maxX) * scale) / 2;
@@ -133,6 +134,7 @@ export function buildChunk(index: number): Chunk {
 // 플레이어 주변 구간만 유지하는 무한 도로. 생성·회수를 콜백으로 알려 물리·렌더가 같은 단위로 따라간다.
 export class ChunkedWorld {
   private active = new Map<number, Chunk>();
+  private seed = Math.floor(Math.random() * 0x100000000);
 
   constructor(private callbacks: ChunkCallbacks) {}
 
@@ -159,7 +161,7 @@ export class ChunkedWorld {
 
     for (let index = first; index <= last; index++) {
       if (this.active.has(index)) continue;
-      const chunk = buildChunk(index);
+      const chunk = buildChunk(index, this.seed);
       this.active.set(index, chunk);
       this.callbacks.onAdd(chunk);
     }
@@ -170,6 +172,8 @@ export class ChunkedWorld {
       this.callbacks.onRemove(index);
     }
     this.active.clear();
+    // 재개는 reset을 호출하지 않는다. 새 게임·재시작에서만 새 도시를 만든다.
+    this.seed = (this.seed + 1 + Math.floor(Math.random() * 0xffffffff)) >>> 0;
     this.update(this.startPosition[2], null);
   }
 }

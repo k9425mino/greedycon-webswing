@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { gameConfig } from '../../shared/config';
-import { buildChunk, chunkIndexForZ, ChunkedWorld } from '../../client/host/world';
+import { buildChunk, chunkIndexForZ, ChunkedWorld, type Chunk } from '../../client/host/world';
 
 const L = gameConfig.world.chunkLengthM;
 
@@ -15,6 +15,14 @@ function trackingWorld() {
 }
 
 describe('buildChunk', () => {
+  it('seed별로 일반 건물과 랜드마크 종류·방향이 달라지고 같은 seed는 재현된다', () => {
+    const samples = Array.from({ length: 20 }, (_, seed) => buildChunk(2, seed));
+    expect(new Set(samples.map((chunk) => chunk.landmark?.kind)).size).toBe(4);
+    expect(new Set(samples.map((chunk) => chunk.landmark?.side)).size).toBe(2);
+    expect(new Set(samples.flatMap((chunk) => chunk.buildings.map((b) => b.style))).size).toBe(3);
+    expect(buildChunk(0, 1)).not.toEqual(buildChunk(0, 2));
+    expect(buildChunk(0, 1)).toEqual(buildChunk(0, 1));
+  });
   it('같은 index는 생성 순서와 무관하게 같은 배치를 만든다', () => {
     expect(buildChunk(7)).toEqual(buildChunk(7));
     expect(buildChunk(7)).not.toEqual(buildChunk(8));
@@ -57,6 +65,20 @@ describe('buildChunk', () => {
 });
 
 describe('ChunkedWorld', () => {
+  it('진행 중 회수·재생성은 같은 도시이고 재시작은 새 도시다', () => {
+    const chunks = new Map<number, Chunk>();
+    const world = new ChunkedWorld({
+      onAdd: (chunk) => chunks.set(chunk.index, chunk),
+      onRemove: (index) => chunks.delete(index),
+    });
+    world.reset();
+    const first = chunks.get(0);
+    world.update(-1200, null);
+    world.update(0, null);
+    expect(chunks.get(0)).toEqual(first);
+    world.reset();
+    expect(chunks.get(0)).not.toEqual(first);
+  });
   it('시작 시 앞 4구간·뒤 2구간을 유지한다', () => {
     const { world, added } = trackingWorld();
     world.update(0, null);

@@ -96,8 +96,9 @@ export const gameConfig = {
     buildingDepthM: 18,
     buildingGapRangeM: [2, 6],
     startPositionZ: 0,
+    // buildChunk 직접 호출 시 재현용 기본값. 실제 게임은 시작·재시작마다 새 seed를 사용한다.
     seed: 20260917,
-    // 랜드마크 배치 제안값: 첫 120m 이후 약 240m 간격으로 좌우 교대.
+    // 랜드마크 배치 제안값: 첫 120m 이후 약 240m 간격, 종류·좌우는 게임 seed로 결정.
     landmarkEveryChunks: 4,
     landmarkFirstChunk: 2,
     // 종류별 확대 배율. 애지헌 탑이 주변 건물(45~70m)에 묻혀 작아 보여 더 키웠다.

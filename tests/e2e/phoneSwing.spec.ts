@@ -264,10 +264,13 @@ test('폰 입력: 빗나가면 부착되지 않고, 누르는 동안 반복 발�
     // 걸지 못한 발사는 낙하로 끝난다. 줄이 최대 사거리까지 날아가는 시간 때문에 한 판 안에
     // 빗나감과 재시도를 모두 담을 수 없어, 손을 떼고 새 판에서 재발사가 되는지 본다.
     await controllerPage.mouse.up();
+    // 재시도 전에 폰의 해제가 호스트까지 전달됐는지 확인한다.
+    await expect(hostPage.locator('#status-touch')).toHaveText('해제');
     await expect(hostPage.locator('#status-phase')).toHaveText('gameOver', { timeout: 5000 });
     await hostPage.click('#btn-restart');
     await expect(hostPage.locator('#status-phase')).toHaveText('ready', { timeout: 5000 });
-    await expect(hostPage.locator('#diag-web-phase')).toHaveText('idle');
+    // ready 화면은 마지막 진단 문구를 보존하므로 실제 초기화된 상태를 확인한다.
+    await expect.poll(async () => (await readSwingState(hostPage)).swingPhase).toBe('idle');
     await hostPage.click('#btn-start');
     await expect(hostPage.locator('#status-phase')).toHaveText('playing');
     await controllerPage.mouse.down();

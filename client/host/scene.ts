@@ -6,6 +6,7 @@ import { createAejiheon } from './models/aejiheon';
 import { createDaeyangAi } from './models/daeyangAi';
 import { createGwanggaeto } from './models/gwanggaeto';
 import { createNaver } from './models/naver';
+import { createOffice, OFFICE_KINDS } from './models/office';
 import { createDeformableWebSilk } from './models/webSilk';
 
 export function createScene(canvas: HTMLCanvasElement) {
@@ -52,48 +53,6 @@ function tryCreateCanvas(width: number, height: number): CanvasRenderingContext2
   return canvas.getContext('2d');
 }
 
-function roundRectPath(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-): void {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
-// 창문 격자 텍스처. 흰 바탕(=재질 색 그대로) 위에 어두운 유리 칸을 찍어 모든 건물 재질이 함께 쓴다.
-function createWindowTexture(): THREE.Texture | null {
-  const ctx = tryCreateCanvas(128, 128);
-  if (!ctx) return null;
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, 128, 128);
-  ctx.fillStyle = '#33465e';
-  const cols = 4;
-  const rows = 6;
-  const cellW = 128 / cols;
-  const cellH = 128 / rows;
-  const pad = cellW * 0.16;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      ctx.fillRect(c * cellW + pad, r * cellH + pad, cellW - pad * 2, cellH - pad * 2);
-    }
-  }
-  const texture = new THREE.CanvasTexture(ctx.canvas);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(2, 4);
-  return texture;
-}
-
-// 차선 텍스처. 도로 구간 길이(chunkLengthM)에 맞춰 한 번만 만들고 모든 구간이 공유한다.
 function createRoadTexture(chunkLengthM: number): THREE.Texture | null {
   const ctx = tryCreateCanvas(128, 512);
   if (!ctx) return null;
@@ -143,35 +102,6 @@ function createPavementTexture(): THREE.Texture | null {
   return texture;
 }
 
-const SIGN_WORDS = ['분식', '노래방', '문구점', 'PC방', '세탁소', '편의점', '떡볶이', '옷수선'];
-
-function createSignTexture(text: string): THREE.Texture | null {
-  const ctx = tryCreateCanvas(256, 96);
-  if (!ctx) return null;
-  ctx.fillStyle = '#1c2030';
-  roundRectPath(ctx, 3, 3, 250, 90, 10);
-  ctx.fill();
-  ctx.strokeStyle = '#f5d547';
-  ctx.lineWidth = 5;
-  roundRectPath(ctx, 5, 5, 246, 86, 9);
-  ctx.stroke();
-  ctx.fillStyle = '#f5d547';
-  ctx.font = 'bold 46px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, 128, 52);
-  return new THREE.CanvasTexture(ctx.canvas);
-}
-
-// 밝은 한국풍 파스텔 팔레트. 재질은 모듈 상수로 두어 게임 내내 재사용하며 폐기하지 않는다.
-// (테스트 환경엔 document가 없어 텍스처가 null일 수 있다. THREE.Material에 map:undefined를 그대로
-// 넘기면 경고가 나므로, 텍스처가 있을 때만 map 속성을 넣는다.)
-const BUILDING_COLORS = [0xffd7a8, 0xa7e8dc, 0xfff0b0, 0xffb9d6, 0xb9e0ff];
-const windowTexture = createWindowTexture();
-const buildingMaterials = BUILDING_COLORS.map(
-  (color) =>
-    new THREE.MeshStandardMaterial({ color, ...(windowTexture ? { map: windowTexture } : {}) }),
-);
 const roadTexture = createRoadTexture(gameConfig.world.chunkLengthM);
 const roadMaterial = new THREE.MeshStandardMaterial({
   color: 0x4d4d57,
@@ -184,11 +114,6 @@ const pavementMaterial = new THREE.MeshStandardMaterial({
   color: 0xd8d3c8,
   ...(pavementTexture ? { map: pavementTexture } : {}),
 });
-const signMaterials = SIGN_WORDS.map((word) => {
-  const texture = createSignTexture(word);
-  return texture ? new THREE.MeshBasicMaterial({ map: texture }) : null;
-}).filter((m): m is THREE.MeshBasicMaterial => m !== null);
-
 const playerGeometry = new THREE.SphereGeometry(gameConfig.physics.playerRadius, 16, 12);
 const playerMaterial = new THREE.MeshStandardMaterial({ color: 0xf92672 });
 // 끝 뭉치도 거리에 따라 키우므로 반지름 1의 기본 구를 두고 scale로 조절한다.
@@ -272,35 +197,7 @@ function boxMesh(spec: BoxSpec, material: THREE.Material): THREE.Mesh {
   return mesh;
 }
 
-// 건물 위치로 결정하는 안정적인 해시. 같은 건물은 항상 같은 색·간판을 받는다(재생성돼도 동일).
-function hashFor(spec: BoxSpec): number {
-  const [x, , z] = spec.center;
-  return Math.abs(Math.round(x * 131 + z * 17));
-}
-
-// 도로 안쪽(플레이어 쪽) 면에 한글 간판 하나를 붙인다. 구간 회수 시 지오메트리를 함께 폐기한다.
-function signMesh(building: BoxSpec, hash: number): THREE.Mesh | null {
-  if (signMaterials.length === 0) return null;
-  if (hash % 3 !== 0) return null;
-  // 길이 확인을 위에서 이미 했으므로 모듈로 인덱스는 항상 유효하다.
-  const material = signMaterials[hash % signMaterials.length]!;
-  const side = Math.sign(building.center[0]) || 1;
-  const innerFaceX = building.center[0] - side * building.halfExtents[0];
-  const signWidth = 3.2;
-  const signHeight = 1.2;
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(signWidth, signHeight), material);
-  mesh.position.set(
-    innerFaceX - side * 0.03,
-    building.center[1] - building.halfExtents[1] + 3,
-    building.center[2],
-  );
-  // 평면 기본 법선(+Z)이 도로(건물 안쪽) 방향을 보도록 Y축으로 회전한다.
-  mesh.rotation.y = -side * (Math.PI / 2);
-  return mesh;
-}
-
-// 도로 밖이 공허로 보이지 않도록 구간마다 좌우 보도 바닥을 깐다. 윗면 높이와 두께를 도로와
-// 맞춰 도로 박스와 겹치지 않게 하고, 충돌체로는 쓰지 않는다(추락 판정은 기존 도로 폭 그대로다).
+// 충돌에 쓰지 않는 넓은 보도로 도로 밖 바닥을 채운다.
 function sidewalkSpecs(road: BoxSpec): BoxSpec[] {
   const halfWidth = gameConfig.world.sidewalkWidthM / 2;
   return [-1, 1].map((side) => ({
@@ -310,12 +207,13 @@ function sidewalkSpecs(road: BoxSpec): BoxSpec[] {
 }
 
 // 구간 mesh는 Group 하나로 묶어 회수 시 통째로 제거한다.
-// 건물·간판 재질은 모듈 상수로 공유하고 폐기하지 않는다. geometry만 구간마다 폐기한다.
+// 도로·보도 geometry는 구간마다 폐기하고 건물 모델 자원은 템플릿으로 공유한다.
 export function createChunkMeshes(scene: THREE.Scene) {
   const groups = new Map<number, THREE.Group>();
   // 랜드마크의 geometry·material·texture는 한 번 만들고 구간 간 공유한다.
   // clone한 Group만 회수하며 공유 자원은 일반 건물 재질처럼 게임 수명 동안 유지한다.
   const landmarkTemplates = new Map<string, THREE.Group>();
+  const officeTemplates = OFFICE_KINDS.map(createOffice);
 
   return {
     add(chunk: Chunk): void {
@@ -339,12 +237,11 @@ export function createChunkMeshes(scene: THREE.Scene) {
         group.add(landmark);
       }
       for (const building of chunk.buildings) {
-        const hash = hashFor(building);
-        // buildingMaterials는 고정 팔레트에서 만든 비어 있지 않은 배열이라 모듈로 인덱스는 항상 유효하다.
-        const material = buildingMaterials[hash % buildingMaterials.length]!;
-        group.add(boxMesh(building, material));
-        const sign = signMesh(building, hash);
-        if (sign) group.add(sign);
+        const office = officeTemplates[OFFICE_KINDS.indexOf(building.style)]!.clone();
+        const [w, h, d] = building.halfExtents;
+        office.scale.set(w / 6, h / 30, d / 9);
+        office.position.set(building.center[0], building.center[1] - h, building.center[2]);
+        group.add(office);
       }
       groups.set(chunk.index, group);
       scene.add(group);

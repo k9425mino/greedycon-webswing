@@ -136,25 +136,34 @@ it('부착 줄은 양 끝을 그대로 두고 가운데만 늘어뜨린다', () 
   expect(path[2]![1]).toBeGreaterThan(10 - 1.3);
 });
 
-it('같은 위치의 건물은 재생성해도 항상 같은 색을 받는다(결정적 장식 배치)', () => {
+it('모든 일반 건물을 오피스로 대체하고 회수 후에도 모델 자원을 재사용한다', () => {
   const scene = new THREE.Scene();
   const chunkMeshes = createChunkMeshes(scene);
   const chunk = buildChunk(2);
 
   chunkMeshes.add(chunk);
   const group = scene.children[0] as THREE.Group;
-  const colorsBefore = group.children
-    .filter((child): child is THREE.Mesh => child instanceof THREE.Mesh)
-    .map((mesh) => (mesh.material as THREE.MeshStandardMaterial).color?.getHex());
+  const offices = group.children.filter((child) => child.name.startsWith('Office '));
+  expect(offices).toHaveLength(chunk.buildings.length);
+  offices.forEach((office, index) => {
+    const spec = chunk.buildings[index]!;
+    expect(office.name).toBe(`Office ${spec.style}`);
+    const bounds = new THREE.Box3().setFromObject(office);
+    const size = bounds.getSize(new THREE.Vector3());
+    const center = bounds.getCenter(new THREE.Vector3());
+    spec.halfExtents.forEach((half, axis) => expect(size.getComponent(axis)).toBeCloseTo(half * 2));
+    spec.center.forEach((value, axis) => expect(center.getComponent(axis)).toBeCloseTo(value));
+  });
+  const first = offices[0]!.children[0] as THREE.Mesh;
   chunkMeshes.remove(chunk.index);
 
   chunkMeshes.add(chunk);
   const groupAfter = scene.children[0] as THREE.Group;
-  const colorsAfter = groupAfter.children
-    .filter((child): child is THREE.Mesh => child instanceof THREE.Mesh)
-    .map((mesh) => (mesh.material as THREE.MeshStandardMaterial).color?.getHex());
-
-  expect(colorsAfter).toEqual(colorsBefore);
+  const recreated = groupAfter.children.filter((child) => child.name.startsWith('Office '));
+  expect(recreated.map((office) => office.name)).toEqual(offices.map((office) => office.name));
+  const second = recreated[0]!.children[0] as THREE.Mesh;
+  expect(second.geometry).toBe(first.geometry);
+  expect(second.material).toBe(first.material);
 });
 
 it('구간을 생성·회수해도 scene 객체 수가 누적되지 않는다', () => {
