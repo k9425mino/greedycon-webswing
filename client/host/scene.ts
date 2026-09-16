@@ -189,9 +189,11 @@ const signMaterials = SIGN_WORDS.map((word) => {
 
 const playerGeometry = new THREE.SphereGeometry(gameConfig.physics.playerRadius, 16, 12);
 const playerMaterial = new THREE.MeshStandardMaterial({ color: 0xf92672 });
-// 밝은 하늘·건물 배경에서도 뚜렷하게 보이도록 채도 높은 진한 색을 쓴다.
-const ropeMaterial = new THREE.LineBasicMaterial({ color: 0xffffff });
-const fireBeamMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true });
+// 만화풍 거미줄: 빛 영향을 받지 않는 흰 튜브에 어두운 외곽선을 덧대 그린 것처럼 보이게 한다.
+const strandCoreColor = 0xffffff;
+const strandOutlineColor = 0x2a2f45;
+// 끝 뭉치도 거리에 따라 키우므로 반지름 1의 기본 구를 두고 scale로 조절한다.
+const strandTipGeometry = new THREE.SphereGeometry(1, 8, 6);
 const attachFlashGeometry = new THREE.RingGeometry(0.3, 0.6, 24);
 const attachFlashMaterial = new THREE.MeshBasicMaterial({
   color: 0xa6e22e,
@@ -308,59 +310,196 @@ export function createPlayerMesh(scene: THREE.Scene): THREE.Mesh {
   return mesh;
 }
 
-export function createRopeLine(scene: THREE.Scene): THREE.Line {
-  const geometry = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(),
-    new THREE.Vector3(),
-  ]);
-  const line = new THREE.Line(geometry, ropeMaterial);
-  line.visible = false;
-  scene.add(line);
-  return line;
-}
+// 거미줄 한 가닥. 흰 심(core)과 그보다 조금 굵은 어두운 외곽선(outline)을 겹쳐 만화풍 윤곽을
+// 만들고, 날아가는 동안에는 끝에 작은 뭉치를 붙인다. 발사 중 줄과 부착 줄이 같은 모양을 쓴다.
+export type WebStrand = {
+  group: THREE.Group;
+  core: THREE.Mesh;
+  outline: THREE.Mesh;
+  tip: THREE.Mesh;
+};
 
-// 카메라 원점에서 시작하면 선 전체가 한 점으로 투영된다. 전방 고정 카메라의 오른쪽 아래에서
-// 보이게 옮기되, 실제 발사 판정과 물리 앵커(끝점)는 그대로 둔다.
+// 카메라 원점에서 시작하면 가닥 전체가 한 점으로 투영된다. 전방 고정 카메라의 오른쪽 아래에서
+// 보이게 시작점만 옮기되, 실제 발사 판정과 물리 앵커(끝점)는 그대로 둔다.
 function withBeamOrigin(from: Vec3): Vec3 {
   const offset = gameConfig.effects.beamOriginOffsetM;
   return [from[0] + offset[0], from[1] + offset[1], from[2] + offset[2]];
 }
 
-export function updateRopeLine(line: THREE.Line, from: Vec3, to: Vec3 | null): void {
-  if (!to) {
-    line.visible = false;
+export function createWebStrand(scene: THREE.Scene): WebStrand {
+  const core = new THREE.Mesh(
+    new THREE.BufferGeometry(),
+    new THREE.MeshBasicMaterial({
+      color: strandCoreColor,
+      transparent: true,
+      side: THREE.DoubleSide,
+    }),
+  );
+  const outline = new THREE.Mesh(
+    new THREE.BufferGeometry(),
+    new THREE.MeshBasicMaterial({
+      color: strandOutlineColor,
+      transparent: true,
+      side: THREE.DoubleSide,
+    }),
+  );
+  const tip = new THREE.Mesh(
+    strandTipGeometry,
+    new THREE.MeshBasicMaterial({ color: strandCoreColor, transparent: true }),
+  );
+  const group = new THREE.Group();
+  group.add(outline, core, tip);
+  group.visible = false;
+  scene.add(group);
+  return { group, core, outline, tip };
+}
+
+// 입력 경로를 화면에서 고르게 보이도록 다시 뽑는다. 월드 길이로 나누면 줄이 카메라에서
+// 출발하기 때문에 대부분의 점이 화면 한곳에 몰린다(시선 방향으로 뻗은 구간은 짧게 보인다).
+// 그래서 간격을 길이가 아니라 시선에서 본 각도(길이/거리)로 잰다.
+function resample(points: Vec3[], samples: number, camera: Vec3): THREE.Vector3[] {
+  const eye = new THREE.Vector3(...camera);
+  const source = points.map((p) => new THREE.Vector3(...p));
+  const views = source.map((p) => new THREE.Vector3().subVectors(p, eye).normalize());
+  const lengths = [0];
+  for (let i = 1; i < source.length; i++) {
+    // 두 점을 바라보는 시선이 벌어진 각도가 곧 화면에서 떨어진 거리다.
+    const cos = Math.min(1, Math.max(-1, views[i]!.dot(views[i - 1]!)));
+    lengths.push(lengths[i - 1]! + Math.acos(cos));
+  }
+  const total = lengths[lengths.length - 1]!;
+  if (total < 1e-6) return [source[0]!.clone(), source[source.length - 1]!.clone()];
+
+  const out: THREE.Vector3[] = [];
+  let cursor = 1;
+  for (let i = 0; i <= samples; i++) {
+    const target = (total * i) / samples;
+    while (cursor < lengths.length - 1 && lengths[cursor]! < target) cursor++;
+    const segmentLength = lengths[cursor]! - lengths[cursor - 1]!;
+    const t = segmentLength < 1e-6 ? 0 : (target - lengths[cursor - 1]!) / segmentLength;
+    out.push(new THREE.Vector3().lerpVectors(source[cursor - 1]!, source[cursor]!, t));
+  }
+  return out;
+}
+
+// 카메라를 향한 납작한 띠를 만든다. 폭을 카메라까지의 거리에 비례시켜, 코앞의 줄이 화면을
+// 덮거나 멀리 있는 줄이 사라지지 않고 항상 같은 두께의 선으로 보이게 한다.
+function ribbon(
+  points: THREE.Vector3[],
+  camera: Vec3,
+  widthScale: number,
+  lift: number,
+): THREE.BufferGeometry {
+  const { widthRatio, minWidthM, maxWidthM, zigzagRatio, zigzagCycles } = gameConfig.effects.strand;
+  const eye = new THREE.Vector3(...camera);
+  const view = new THREE.Vector3();
+  const tangent = new THREE.Vector3();
+  const side = new THREE.Vector3();
+  const lastSide = new THREE.Vector3(1, 0, 0);
+  const positions = new Float32Array(points.length * 6);
+  const indices: number[] = [];
+
+  // 흔들림을 화면에서 고르게 보이게 하려면 월드 길이가 아니라 시선에서 본 각도로 나눠야 한다.
+  // (멀리 있는 부분은 월드 길이가 같아도 화면에서는 훨씬 짧다.)
+  const angles = [0];
+  for (let i = 1; i < points.length; i++) {
+    const distance = points[i]!.distanceTo(eye) || 1;
+    angles.push(angles[i - 1]! + points[i]!.distanceTo(points[i - 1]!) / distance);
+  }
+  const totalAngle = angles[angles.length - 1]! || 1;
+
+  for (let i = 0; i < points.length; i++) {
+    const point = points[i]!;
+    view.subVectors(point, eye);
+    const distance = view.length() || 1;
+    const half = Math.min(Math.max(distance * widthRatio, minWidthM), maxWidthM) * widthScale;
+    tangent.subVectors(points[Math.min(points.length - 1, i + 1)]!, points[Math.max(0, i - 1)]!);
+    side.crossVectors(tangent, view);
+    // 가닥이 시선과 거의 나란한 구간에서는 옆 방향이 불안정하게 돌아간다. 그럴 때는 직전
+    // 구간의 옆 방향을 이어 써서 가닥이 꼬여 보이지 않게 한다.
+    if (side.length() < 1e-3 * tangent.length() * distance) side.copy(lastSide);
+    side.normalize();
+    lastSide.copy(side);
+    // 가닥을 따라 좌우로 흔들어 곧은 선 대신 거미줄처럼 보이게 한다. 폭과 같은 평면에서
+    // 흔들어야 멀리 있는 부분이 뭉쳐 보이지 않는다. 양 끝은 흔들지 않는다.
+    const t = angles[i]! / totalAngle;
+    const wobble =
+      Math.sin(Math.PI * t) * Math.sin(t * zigzagCycles * Math.PI * 2) * distance * zigzagRatio;
+    side.multiplyScalar(half);
+    // 흰 심을 외곽선보다 카메라 쪽으로 당겨 두 면이 겹쳐 깜빡이는 것을 막는다.
+    const pull = lift / distance;
+    const wobbleX = (side.x / half) * wobble;
+    const wobbleY = (side.y / half) * wobble;
+    const wobbleZ = (side.z / half) * wobble;
+    const cx = point.x - view.x * pull + wobbleX;
+    const cy = point.y - view.y * pull + wobbleY;
+    const cz = point.z - view.z * pull + wobbleZ;
+    positions.set([cx - side.x, cy - side.y, cz - side.z], i * 6);
+    positions.set([cx + side.x, cy + side.y, cz + side.z], i * 6 + 3);
+    if (i > 0) {
+      const base = (i - 1) * 2;
+      indices.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+// points: 손에서 끝점까지의 경로(2점 이상). 첫 점만 화면에 보이도록 옮긴다.
+// camera: 굵기 기준이 되는 시점 위치. showTip: 아직 부착하지 않고 날아가는 중일 때 끝 뭉치를 보여준다.
+export function updateWebStrand(
+  strand: WebStrand,
+  points: Vec3[] | null,
+  camera: Vec3,
+  opacity: number,
+  showTip = false,
+): void {
+  if (!points || points.length < 2 || opacity <= 0) {
+    strand.group.visible = false;
     return;
   }
-  line.visible = true;
-  const start = withBeamOrigin(from);
-  const positions = line.geometry.attributes.position as THREE.BufferAttribute;
-  positions.setXYZ(0, start[0], start[1], start[2]);
-  positions.setXYZ(1, to[0], to[1], to[2]);
-  positions.needsUpdate = true;
-  // 정점 이동만으로는 프러스텀 판정에 쓰는 경계가 갱신되지 않는다.
-  line.geometry.computeBoundingSphere();
+  const { outlineScale, pathSegments, coreLiftM, widthRatio, minWidthM, maxWidthM } =
+    gameConfig.effects.strand;
+  const shifted: Vec3[] = [withBeamOrigin(points[0]!), ...points.slice(1)];
+  const sampled = resample(shifted, pathSegments, camera);
+
+  strand.core.geometry.dispose();
+  strand.core.geometry = ribbon(sampled, camera, 1, coreLiftM);
+  strand.outline.geometry.dispose();
+  strand.outline.geometry = ribbon(sampled, camera, outlineScale, 0);
+  for (const mesh of [strand.core, strand.outline, strand.tip]) {
+    (mesh.material as THREE.MeshBasicMaterial).opacity = opacity;
+  }
+
+  const end = sampled[sampled.length - 1]!;
+  const tipDistance = end.distanceTo(new THREE.Vector3(...camera)) || 1;
+  strand.tip.position.copy(end);
+  strand.tip.scale.setScalar(
+    Math.min(Math.max(tipDistance * widthRatio, minWidthM), maxWidthM) * 2.2,
+  );
+  strand.tip.visible = showTip;
+  strand.group.visible = true;
 }
 
-// 발사 진행·빗나감에 표시하는 임시 선. 거미줄과 다른 색으로 구분한다.
-export function createFireBeamLine(scene: THREE.Scene): THREE.Line {
-  const geometry = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(),
-    new THREE.Vector3(),
-  ]);
-  const line = new THREE.Line(geometry, fireBeamMaterial);
-  line.visible = false;
-  scene.add(line);
-  return line;
-}
-
-export function updateFireBeamLine(
-  line: THREE.Line,
-  from: Vec3,
-  to: Vec3 | null,
-  opacity: number,
-): void {
-  updateRopeLine(line, from, to);
-  (line.material as THREE.LineBasicMaterial).opacity = opacity;
+// 부착 줄이 팽팽한 직선으로 보이지 않도록 가운데를 조금 늘어뜨린 경로를 만든다.
+export function saggedPath(from: Vec3, to: Vec3, samples = 8): Vec3[] {
+  const { sagRatio, maxSagM } = gameConfig.effects.strand;
+  const distance = Math.hypot(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
+  const sag = Math.min(distance * sagRatio, maxSagM);
+  const points: Vec3[] = [];
+  for (let i = 0; i <= samples; i++) {
+    const t = i / samples;
+    points.push([
+      from[0] + (to[0] - from[0]) * t,
+      from[1] + (to[1] - from[1]) * t - Math.sin(Math.PI * t) * sag,
+      from[2] + (to[2] - from[2]) * t,
+    ]);
+  }
+  return points;
 }
 
 // 부착 성공 순간 잠깐 나타나는 원형 플래시. 카메라가 항상 -Z를 보고 롤이 없으므로

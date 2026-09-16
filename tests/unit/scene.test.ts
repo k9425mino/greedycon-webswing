@@ -2,62 +2,121 @@ import { expect, it } from 'vitest';
 import * as THREE from 'three';
 import {
   createChunkMeshes,
-  createFireBeamLine,
-  createRopeLine,
-  updateFireBeamLine,
-  updateRopeLine,
+  createWebStrand,
+  saggedPath,
+  updateWebStrand,
 } from '../../client/host/scene';
 import { buildChunk } from '../../client/host/world';
 
-it('정면으로 빗나간 발사도 화면에서 길이를 가진 선으로 보인다', () => {
-  const line = createFireBeamLine(new THREE.Scene());
-  expect((line.material as THREE.LineBasicMaterial).color.getHex()).toBe(0xffffff);
-  updateFireBeamLine(line, [0, 0, 0], [0, 0, -70], 1);
+it('카메라 위치에서 시작한 거미줄도 화면에서 길이를 가진다', () => {
+  const strand = createWebStrand(new THREE.Scene());
+  // 가닥의 시작점은 매 프레임 카메라(=플레이어) 위치다. 오프셋이 없으면 한 점으로 투영된다.
+  updateWebStrand(
+    strand,
+    [
+      [0, 0, 0],
+      [0, 0, -70],
+    ],
+    [0, 0, 0],
+    1,
+    true,
+  );
   const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 500);
-  const positions = line.geometry.getAttribute('position');
+  const positions = strand.core.geometry.getAttribute('position');
   const start = new THREE.Vector3().fromBufferAttribute(positions, 0).project(camera);
-  const end = new THREE.Vector3().fromBufferAttribute(positions, 1).project(camera);
+  const end = strand.tip.position.clone().project(camera);
 
+  expect(strand.group.visible).toBe(true);
   expect([start.x, start.y, start.z].every(Number.isFinite)).toBe(true);
   expect(Math.abs(start.x)).toBeLessThan(1);
   expect(Math.abs(start.y)).toBeLessThan(1);
-  expect(start.z).toBeGreaterThan(-1);
-  expect(start.z).toBeLessThan(1);
   expect(Math.hypot(start.x - end.x, start.y - end.y)).toBeGreaterThan(0.1);
-  expect(end.x).toBeCloseTo(0);
-  expect(end.y).toBeCloseTo(0);
-  updateFireBeamLine(line, [0, 0, 0], null, 0);
-  expect(line.visible).toBe(false);
-  line.geometry.dispose();
+  // 끝점(물리 앵커·부착 판정 지점)은 옮기지 않는다.
+  expect(strand.tip.position.toArray()).toEqual([0, 0, -70]);
 });
 
-it('카메라 위치에서 시작한 부착 줄도 화면에서 길이를 가진 선으로 보인다', () => {
-  const line = createRopeLine(new THREE.Scene());
-  // 부착 줄의 시작점은 매 프레임 카메라(=플레이어) 위치다. 오프셋이 없으면 한 점으로 투영된다.
-  updateRopeLine(line, [0, 0, 0], [0, 12, -20]);
-  const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 500);
-  const positions = line.geometry.getAttribute('position');
-  const start = new THREE.Vector3().fromBufferAttribute(positions, 0).project(camera);
-  const end = new THREE.Vector3().fromBufferAttribute(positions, 1).project(camera);
+it('거미줄이 없거나 다 흐려지면 그리지 않는다', () => {
+  const strand = createWebStrand(new THREE.Scene());
+  updateWebStrand(
+    strand,
+    [
+      [0, 0, 0],
+      [0, 6, -20],
+    ],
+    [0, 0, 0],
+    1,
+  );
+  expect(strand.group.visible).toBe(true);
+  expect(strand.tip.visible).toBe(false);
 
-  expect([start.x, start.y, start.z].every(Number.isFinite)).toBe(true);
-  expect(Math.hypot(start.x - end.x, start.y - end.y)).toBeGreaterThan(0.1);
-  // 물리 앵커(끝점)는 옮기지 않는다.
-  expect(new THREE.Vector3().fromBufferAttribute(positions, 1).toArray()).toEqual([0, 12, -20]);
-  line.geometry.dispose();
+  updateWebStrand(strand, null, [0, 0, 0], 1);
+  expect(strand.group.visible).toBe(false);
+  updateWebStrand(
+    strand,
+    [
+      [0, 0, 0],
+      [0, 6, -20],
+    ],
+    [0, 0, 0],
+    0,
+  );
+  expect(strand.group.visible).toBe(false);
+});
+
+it('외곽선은 심보다 굵어 만화풍 테두리로 보인다', () => {
+  const strand = createWebStrand(new THREE.Scene());
+  updateWebStrand(
+    strand,
+    [
+      [0, 0, 0],
+      [0, 0, -20],
+    ],
+    [0, 0, 0],
+    1,
+  );
+  strand.core.geometry.computeBoundingBox();
+  strand.outline.geometry.computeBoundingBox();
+  const core = new THREE.Vector3();
+  const outline = new THREE.Vector3();
+  strand.core.geometry.boundingBox!.getSize(core);
+  strand.outline.geometry.boundingBox!.getSize(outline);
+  expect(outline.x).toBeGreaterThan(core.x);
+  expect((strand.outline.material as THREE.MeshBasicMaterial).side).toBe(THREE.DoubleSide);
 });
 
 it('이동한 거미줄이 카메라 안에 있으면 이전 위치의 경계 때문에 숨겨지지 않는다', () => {
-  const line = createRopeLine(new THREE.Scene());
-  expect((line.material as THREE.LineBasicMaterial).color.getHex()).toBe(0xffffff);
-  updateRopeLine(line, [100, 0, -10], [110, 0, -10]);
-  line.geometry.computeBoundingSphere();
-  updateRopeLine(line, [0, 0, -10], [0, 5, -10]);
+  const strand = createWebStrand(new THREE.Scene());
+  updateWebStrand(
+    strand,
+    [
+      [100, 0, -10],
+      [110, 0, -10],
+    ],
+    [0, 0, 0],
+    1,
+  );
+  updateWebStrand(
+    strand,
+    [
+      [0, 0, -10],
+      [0, 5, -10],
+    ],
+    [0, 0, 0],
+    1,
+  );
 
   const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 500);
   const frustum = new THREE.Frustum().setFromProjectionMatrix(camera.projectionMatrix);
-  expect(frustum.intersectsObject(line)).toBe(true);
-  line.geometry.dispose();
+  expect(frustum.intersectsObject(strand.core)).toBe(true);
+});
+
+it('부착 줄은 양 끝을 그대로 두고 가운데만 늘어뜨린다', () => {
+  const path = saggedPath([0, 10, 0], [0, 10, -30], 4);
+  expect(path[0]).toEqual([0, 10, 0]);
+  expect(path[4]).toEqual([0, 10, -30]);
+  // 가운데는 직선보다 아래에 있고, 처짐은 상한(1.2m) 안이다.
+  expect(path[2]![1]).toBeLessThan(10);
+  expect(path[2]![1]).toBeGreaterThan(10 - 1.3);
 });
 
 it('같은 위치의 건물은 재생성해도 항상 같은 색을 받는다(결정적 장식 배치)', () => {

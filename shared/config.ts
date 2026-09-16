@@ -49,6 +49,9 @@ export const gameConfig = {
   web: {
     // 버튼을 누르는 동안 줄 끝이 뻗어나가는 속도. 최대 사거리 70m까지 약 0.58초.
     travelSpeedMps: 120,
+    // 날아가는 줄 끝이 받는 중력. 플레이어 중력과 별개이며, 휘어짐이 크지 않도록 작게 둔다
+    // (70m 끝에서 약 3.4m 처짐, 10m에서 7cm). 체감 검증 전 제안 초기값.
+    travelGravity: 20,
     minFireDistance: 3,
     maxFireDistance: 70,
     // 조준 보정: 조준 방향으로 이 반지름의 구체를 쓸어 벽면 접촉점을 찾는다(후보점 배열 대체).
@@ -58,10 +61,28 @@ export const gameConfig = {
   // 시각 효과의 기존 초기값. 실기기 체감 검증 전이다.
   effects: {
     attachFlashDurationMs: 220,
-    firePulsePerMs: 0.05,
     missBeamDurationMs: 260,
     // 거미줄 선(발사·빗나감·부착)의 시작점 오프셋. 카메라 원점에서 시작하면 한 점으로 투영된다.
     beamOriginOffsetM: [0.25, -0.2, -0.5] as [number, number, number],
+    // 만화풍 거미줄 가닥. 흰 튜브에 어두운 외곽선을 덧대고, 가닥을 따라 지그재그로 흔든다.
+    strand: {
+      // 굵기는 카메라까지의 거리에 비례해 정한다(화면에서 항상 같은 두께로 보이는 만화 잉크선).
+      widthRatio: 0.006,
+      minWidthM: 0.004,
+      maxWidthM: 0.5,
+      outlineScale: 2.1,
+      // 좌우로 흔드는 폭도 거리에 비례시켜 화면에서 고르게 보이게 한다. 가닥 하나에 들어가는
+      // 흔들림 횟수는 길이와 무관하게 고정한다. 양 끝에서는 0으로 줄여 손·부착점에 정확히 붙인다.
+      zigzagRatio: 0.018,
+      zigzagCycles: 3,
+      // 가닥을 따라 나누는 마디 수. 낮게 두어 각진 만화풍으로 보이게 한다.
+      pathSegments: 24,
+      // 흰 심을 외곽선보다 카메라 쪽으로 이만큼 당겨 같은 평면끼리 깜빡이지 않게 한다.
+      coreLiftM: 0.05,
+      // 부착 줄이 아래로 처지는 정도(거리 비례, 상한 있음).
+      sagRatio: 0.04,
+      maxSagM: 1.2,
+    },
   },
 
   // 무한 도로 구간 (ARCHITECTURE 5절 제안 초기값, 측정 전 시작점)

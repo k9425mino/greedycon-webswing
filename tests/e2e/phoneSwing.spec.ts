@@ -66,24 +66,25 @@ async function exposeSwingState(page: Page) {
         }
 
         function readRope() {
-          const positions = ropeLine.geometry.getAttribute('position');
+          // 부착 줄은 튜브 메시다. 시작 단면의 첫 정점과 끝 뭉치 위치로 화면에서의 벌어짐을 잰다.
+          const positions = ropeStrand.core.geometry.getAttribute('position');
+          // 한 번도 그리지 않은 가닥은 빈 geometry다(부착 전).
+          if (!positions) return { visible: false, separationDeg: 0, endpoint: [0, 0, 0] };
           const camera = sceneHandle.camera.position;
-          const viewRay = (index) => {
-            const v = [
-              positions.getX(index) - camera.x,
-              positions.getY(index) - camera.y,
-              positions.getZ(index) - camera.z,
-            ];
+          const viewRay = (point) => {
+            const v = [point[0] - camera.x, point[1] - camera.y, point[2] - camera.z];
             const len = Math.hypot(v[0], v[1], v[2]) || 1;
             return [v[0] / len, v[1] / len, v[2] / len];
           };
-          const a = viewRay(0);
-          const b = viewRay(1);
+          const tip = ropeStrand.tip.position;
+          const endpoint = [tip.x, tip.y, tip.z];
+          const a = viewRay([positions.getX(0), positions.getY(0), positions.getZ(0)]);
+          const b = viewRay(endpoint);
           const dot = Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
           return {
-            visible: ropeLine.visible,
+            visible: ropeStrand.group.visible,
             separationDeg: (Math.acos(dot) * 180) / Math.PI,
-            endpoint: [positions.getX(1), positions.getY(1), positions.getZ(1)],
+            endpoint,
           };
         }
       `,
@@ -176,7 +177,7 @@ test('폰 입력: 보정·조준·터치 유지가 실제 물리 부착과 스�
     expect(attached.attachment).not.toBeNull();
     const startY = attached.position![1];
 
-    // 발사 연출(100ms)이 끝난 뒤에도 부착 줄이 남고, 화면에서 한 점이 아니라 선으로 보인다.
+    // 날아가던 줄이 걸린 뒤에도 부착 줄이 남고, 화면에서 한 점이 아니라 선으로 보인다.
     await expect(hostPage.locator('#hud-web-status')).toHaveText('부착됨');
     expect(attached.rope.visible).toBe(true);
     expect(attached.rope.separationDeg).toBeGreaterThan(1);
@@ -207,9 +208,10 @@ test('폰 입력: 보정·조준·터치 유지가 실제 물리 부착과 스�
     expect(Math.min(...zs)).toBeLessThan(attached.position![2] - 3);
     expect(-samples.at(-1)!.velocity![2]).toBeGreaterThan(gameConfig.physics.forwardSpeed);
     // 위쪽 부착점의 당김이 중력을 이겨, 낙하가 느려지는 데 그치지 않고 실제로 올라간다.
+    // 줄이 날아가는 동안에도 떨어지므로 상승은 보조 구간 안에서만 나타난다(부착점을 지나면 끝난다).
     expect(attached.attachment!.point[1]).toBeGreaterThan(startY);
-    expect(samples.at(-1)!.position![1]).toBeGreaterThan(startY + 1);
-    expect(samples.at(-1)!.velocity![1]).toBeGreaterThan(0);
+    expect(Math.max(...samples.map((sample) => sample.position![1]))).toBeGreaterThan(startY);
+    expect(Math.max(...samples.map((sample) => sample.velocity![1]))).toBeGreaterThan(0);
 
     // 손을 떼면 줄을 놓는다.
     await controllerPage.mouse.up();
@@ -253,15 +255,21 @@ test('폰 입력: 빗나가면 부착되지 않고, 누르는 동안 반복 발�
 
     // 누르는 동안에는 표적을 다시 겨눠도 재발사하지 않는다.
     await aimPhone(controllerPage, AIM_RIGHT_UP);
-    await hostPage.waitForTimeout(600);
+    await hostPage.waitForTimeout(100);
     expect(await readSwingState(hostPage)).toMatchObject({
       swingPhase: 'releasedRequired',
       attachment: null,
     });
 
-    // 떼고 다시 누르면 재시도해 부착한다.
+    // 걸지 못한 발사는 낙하로 끝난다. 줄이 최대 사거리까지 날아가는 시간 때문에 한 판 안에
+    // 빗나감과 재시도를 모두 담을 수 없어, 손을 떼고 새 판에서 재발사가 되는지 본다.
     await controllerPage.mouse.up();
-    await expect(hostPage.locator('#diag-web-phase')).toHaveText('idle', { timeout: 3000 });
+    await expect(hostPage.locator('#status-phase')).toHaveText('gameOver', { timeout: 5000 });
+    await hostPage.click('#btn-restart');
+    await expect(hostPage.locator('#status-phase')).toHaveText('ready', { timeout: 5000 });
+    await expect(hostPage.locator('#diag-web-phase')).toHaveText('idle');
+    await hostPage.click('#btn-start');
+    await expect(hostPage.locator('#status-phase')).toHaveText('playing');
     await controllerPage.mouse.down();
     await expect(hostPage.locator('#hud-web-status')).toHaveText('부착됨', { timeout: 5000 });
     await controllerPage.mouse.up();

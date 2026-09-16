@@ -22,10 +22,15 @@ export type FireFailure = 'noTarget' | 'releasedWhileFiring';
 
 export type SwingOptions = {
   travelSpeedMps: number;
+  travelGravity: number;
   minDistance: number;
   maxDistance: number;
   assistRadius: number;
 };
+
+function subtract(a: Vec3, b: Vec3): Vec3 {
+  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}
 
 function length(v: Vec3): number {
   return Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
@@ -69,8 +74,8 @@ export type SwingCallbacks = {
   // 발사 시작. 이 시점에는 아직 표적이 없다(줄 끝이 뻗어나가며 찾는다).
   onFireStart?: () => void;
   // 최대 사거리까지 아무것도 걸지 못한 발사. 걸리지 못한 줄이 계속 날아가는 연출을 위해
-  // 줄 끝 위치와 진행 방향을 넘긴다.
-  onFireMiss?: (tip: Vec3, direction: Vec3) => void;
+  // 그때까지의 비행 경로와 마지막 진행 방향을 넘긴다.
+  onFireMiss?: (path: Vec3[], direction: Vec3) => void;
   onAttach: (target: TargetHit) => void;
   onRelease: () => void;
 };
@@ -78,11 +83,14 @@ export type SwingCallbacks = {
 // idle -> firing -> attached -> idle, 실패 시 releasedRequired (ARCHITECTURE 4절).
 export class WebSwing {
   phase: SwingPhase = 'idle';
-  // 발사 순간 고정한 줄의 출발점·방향. 줄 끝은 이 반직선을 따라 일정 속도로 뻗어나간다.
+  // 발사 순간 고정한 줄의 출발점·방향. 줄 끝은 여기서 출발해 중력을 받는 탄도를 그린다.
   private fireOrigin: Vec3 = [0, 0, 0];
   private fireDirection: Vec3 = [0, 0, -1];
   private fireStartedAt = 0;
-  private reach = 0;
+  private elapsed = 0;
+  // 줄 끝이 지금까지 날아간 경로 길이. 최대 사거리는 직선 거리가 아니라 이 길이로 잰다.
+  private travelled = 0;
+  private tip: Vec3 = [0, 0, 0];
   private lastPressed = false;
   private failure: FireFailure | null = null;
 
@@ -90,6 +98,45 @@ export class WebSwing {
     private query: TargetQuery,
     private options: SwingOptions,
   ) {}
+
+  // 발사 후 t초일 때의 줄 끝. 수평은 등속, 수직은 중력으로 처진다.
+  private tipAt(t: number): Vec3 {
+    const drop = 0.5 * this.options.travelGravity * t * t;
+    const forward = this.options.travelSpeedMps * t;
+    return [
+      this.fireOrigin[0] + this.fireDirection[0] * forward,
+      this.fireOrigin[1] + this.fireDirection[1] * forward - drop,
+      this.fireOrigin[2] + this.fireDirection[2] * forward,
+    ];
+  }
+
+  // 직전 줄 끝에서 지금 줄 끝까지의 구간만 검사한다. 이미 지나간 곳은 다시 보지 않는다.
+  private hitAlong(from: Vec3, to: Vec3, travelledAtStart: number): TargetHit | null {
+    const delta = subtract(to, from);
+    const segmentLength = length(delta);
+    if (segmentLength < 1e-6) return null;
+    const direction: Vec3 = [
+      delta[0] / segmentLength,
+      delta[1] / segmentLength,
+      delta[2] / segmentLength,
+    ];
+    // 최소 사거리 전까지는 걸리지 않는다. 구간 중간부터 검사해야 하면 시작점을 앞으로 당긴다.
+    const skip = Math.max(0, this.options.minDistance - travelledAtStart);
+    if (skip >= segmentLength) return null;
+    const origin: Vec3 = [
+      from[0] + direction[0] * skip,
+      from[1] + direction[1] * skip,
+      from[2] + direction[2] * skip,
+    ];
+    const reach = segmentLength - skip;
+
+    const direct = this.query.raycastBuilding(origin, direction, reach);
+    if (direct) return direct;
+    // 조준 보정: 줄 끝 주변을 구체로 쓸어 살짝 빗나간 벽면도 잡는다(ARCHITECTURE 5절).
+    const swept = this.query.sweepBuilding(origin, direction, reach, this.options.assistRadius);
+    if (!swept || !this.query.isVisible(origin, swept.point)) return null;
+    return swept;
+  }
 
   update(
     pressed: boolean,
@@ -104,12 +151,14 @@ export class WebSwing {
 
     if (this.phase === 'idle') {
       if (!risingEdge) return;
-      // 누른 순간에는 표적을 정하지 않는다. 줄 끝이 뻗어나가다 처음 걸리는 건물에 부착한다.
+      // 누른 순간에는 표적을 정하지 않는다. 날아가는 줄 끝이 처음 걸리는 건물에 부착한다.
       this.phase = 'firing';
       this.fireOrigin = origin;
       this.fireDirection = normalize(aimDirection);
       this.fireStartedAt = nowSec;
-      this.reach = 0;
+      this.elapsed = 0;
+      this.travelled = 0;
+      this.tip = origin;
       callbacks.onFireStart?.();
       return;
     }
@@ -119,26 +168,25 @@ export class WebSwing {
         this.failure = 'releasedWhileFiring';
         // 이미 손을 뗐으므로 추가 해제를 기다리면 바로 이어진 다음 누름을 놓친다.
         this.phase = 'idle';
-        this.reach = 0;
         return;
       }
-      this.reach = Math.min(
-        (nowSec - this.fireStartedAt) * this.options.travelSpeedMps,
-        this.options.maxDistance,
-      );
-      // 지금까지 뻗은 길이 안에서만 표적을 찾는다. 줄 끝이 아직 닿지 않은 건물은 걸리지 않는다.
-      const target = selectTarget(this.fireOrigin, this.fireDirection, this.query, {
-        ...this.options,
-        maxDistance: this.reach,
-      });
-      if (target) {
+      this.elapsed = nowSec - this.fireStartedAt;
+      const previousTip = this.tip;
+      const previousTravelled = this.travelled;
+      const nextTip = this.tipAt(this.elapsed);
+      this.travelled += length(subtract(nextTip, previousTip));
+      this.tip = nextTip;
+
+      const hit = this.hitAlong(previousTip, nextTip, previousTravelled);
+      if (hit) {
         this.failure = null;
-        callbacks.onAttach(target);
+        // 부착 거리는 표시·진단용이며, 실제 부착점은 줄 끝이 닿은 그 지점이다.
+        callbacks.onAttach({ point: hit.point, distance: this.travelled });
         this.phase = 'attached';
         return;
       }
-      if (this.reach >= this.options.maxDistance) {
-        callbacks.onFireMiss?.(this.tipPoint ?? origin, this.fireDirection);
+      if (this.travelled >= this.options.maxDistance) {
+        callbacks.onFireMiss?.(this.pathPoints(), this.fireDirection);
         this.failure = 'noTarget';
         this.phase = 'releasedRequired';
       }
@@ -162,7 +210,8 @@ export class WebSwing {
   // currentlyPressed: 재개·재시작 순간 이미 눌려있어도 자동 발사로 취급하지 않기 위해 기준값으로 사용한다.
   reset(currentlyPressed = false): void {
     this.phase = 'idle';
-    this.reach = 0;
+    this.elapsed = 0;
+    this.travelled = 0;
     this.lastPressed = currentlyPressed;
     this.failure = null;
   }
@@ -172,20 +221,25 @@ export class WebSwing {
     return this.failure;
   }
 
-  // 뻗어나가는 중인 줄 끝(시각 효과용). firing 단계가 아니면 null이다.
+  // 날아가는 중인 줄 끝. firing 단계가 아니면 null이다.
   get tipPoint(): Vec3 | null {
-    if (this.phase !== 'firing') return null;
-    return [
-      this.fireOrigin[0] + this.fireDirection[0] * this.reach,
-      this.fireOrigin[1] + this.fireDirection[1] * this.reach,
-      this.fireOrigin[2] + this.fireDirection[2] * this.reach,
-    ];
+    return this.phase === 'firing' ? this.tip : null;
+  }
+
+  // 발사점부터 현재 줄 끝까지의 비행 경로. 휘어진 줄을 그리는 데 쓴다.
+  pathPoints(samples = 12): Vec3[] {
+    const points: Vec3[] = [];
+    for (let i = 0; i <= samples; i++) {
+      points.push(this.tipAt((this.elapsed * i) / samples));
+    }
+    return points;
   }
 }
 
 export function defaultSwingOptions(): SwingOptions {
   return {
     travelSpeedMps: gameConfig.web.travelSpeedMps,
+    travelGravity: gameConfig.web.travelGravity,
     minDistance: gameConfig.web.minFireDistance,
     maxDistance: gameConfig.web.maxFireDistance,
     assistRadius: gameConfig.web.aimAssistRadiusM,

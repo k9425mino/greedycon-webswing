@@ -27,15 +27,14 @@ import { RateCounter } from './diagnostics';
 import {
   createAttachFlash,
   createChunkMeshes,
-  createFireBeamLine,
+  createWebStrand,
   createPlayerMesh,
-  createRopeLine,
+  saggedPath,
   createScene,
   showAttachFlashAt,
   updateAttachFlash,
   updateCameraPosition,
-  updateFireBeamLine,
-  updateRopeLine,
+  updateWebStrand,
 } from './scene';
 import { isMouseInputEnabled, MouseAimInput } from './mouseInput';
 import { PhysicsWorld, type Vec3 } from './physics';
@@ -148,8 +147,8 @@ let physicsAccumulatorSec = 0;
 let lastFrameAt: number | null = null;
 
 const playerMesh = createPlayerMesh(sceneHandle.scene);
-const ropeLine = createRopeLine(sceneHandle.scene);
-const fireBeamLine = createFireBeamLine(sceneHandle.scene);
+const ropeStrand = createWebStrand(sceneHandle.scene);
+const fireStrand = createWebStrand(sceneHandle.scene);
 const attachFlash = createAttachFlash(sceneHandle.scene);
 const chunkMeshes = createChunkMeshes(sceneHandle.scene);
 const progress = new Progress();
@@ -162,7 +161,7 @@ const swingOptions = defaultSwingOptions();
 let attachFlashStartMs: number | null = null;
 
 // 걸리지 못한 거미줄. 최대 사거리에서 끊긴 뒤에도 같은 방향으로 계속 날아가며 흐려진다.
-let missBeam: { point: Vec3; direction: Vec3; startedAtMs: number } | null = null;
+let missBeam: { path: Vec3[]; direction: Vec3; startedAtMs: number } | null = null;
 
 // 조준점 갱신에서 계산한 부착 예정점. 표시와 진단이 같은 값을 쓰도록 보관한다.
 let previewTarget: TargetHit | null = null;
@@ -202,7 +201,7 @@ PhysicsWorld.create()
 function setPhase(next: GamePhase, nextReason?: PauseReason) {
   if (next !== 'playing') {
     sfx.stopAll();
-    fireBeamLine.visible = false;
+    fireStrand.group.visible = false;
     attachFlash.visible = false;
     attachFlashStartMs = null;
     missBeam = null;
@@ -517,8 +516,8 @@ function stepPhysicsFixed(nowSec: number) {
       missBeam = null;
       sfx.playFire();
     },
-    onFireMiss: (tip, direction) => {
-      missBeam = { point: tip, direction, startedAtMs: nowSec * 1000 };
+    onFireMiss: (path, direction) => {
+      missBeam = { path, direction, startedAtMs: nowSec * 1000 };
       sfx.playMiss();
     },
     onAttach: (target) => {
@@ -603,6 +602,20 @@ function updateDiagnostics() {
     : '없음';
 }
 
+// 줄의 비행 경로는 발사 순간의 위치에서 출발한다. 그 사이 플레이어가 움직였으므로 시작점만
+// 현재 손 위치로 끌어오고, 끝점(실제 부착 판정 지점)은 건드리지 않는다.
+function handToFlightPath(path: Vec3[], hand: Vec3): Vec3[] {
+  const shift: Vec3 = [hand[0] - path[0]![0], hand[1] - path[0]![1], hand[2] - path[0]![2]];
+  return path.map((point, i): Vec3 => {
+    const weight = 1 - i / (path.length - 1);
+    return [
+      point[0] + shift[0] * weight,
+      point[1] + shift[1] * weight,
+      point[2] + shift[2] * weight,
+    ];
+  });
+}
+
 function frameLoop(nowMs: number) {
   requestAnimationFrame(frameLoop);
   if (lastFrameAt === null) lastFrameAt = nowMs;
@@ -644,29 +657,34 @@ function frameLoop(nowMs: number) {
     const renderPos = physics.interpolatedPosition(Math.min(1, Math.max(0, alpha)));
     playerMesh.position.set(...renderPos);
     updateCameraPosition(sceneHandle.camera, renderPos);
-    updateRopeLine(ropeLine, renderPos, attachedPoint);
+    updateWebStrand(
+      ropeStrand,
+      attachedPoint ? saggedPath(renderPos, attachedPoint) : null,
+      renderPos,
+      1,
+    );
 
-    // 뻗어나가는 줄과 빗나감 연출은 같은 선을 공유한다.
-    const firingTip = phase === 'playing' ? (swing?.tipPoint ?? null) : null;
-    if (firingTip) {
-      const pulse = 0.6 + 0.4 * Math.sin(nowMs * gameConfig.effects.firePulsePerMs);
-      updateFireBeamLine(fireBeamLine, renderPos, firingTip, pulse);
+    // 날아가는 줄과 빗나감 연출은 같은 가닥을 공유한다.
+    const flightPath =
+      phase === 'playing' ? (swing?.phase === 'firing' ? swing.pathPoints() : null) : null;
+    if (flightPath) {
+      updateWebStrand(fireStrand, handToFlightPath(flightPath, renderPos), renderPos, 1, true);
     } else if (missBeam) {
-      // 걸리지 못한 줄은 같은 속도로 계속 날아가며 흐려진다.
+      // 걸리지 못한 줄은 손을 떠나 같은 방향으로 계속 날아가며 흐려진다.
       const elapsedMs = nowMs - missBeam.startedAtMs;
       const fadeProgress = elapsedMs / gameConfig.effects.missBeamDurationMs;
       if (fadeProgress >= 1) missBeam = null;
       const flownM = (elapsedMs / 1000) * gameConfig.web.travelSpeedMps;
-      const tip: Vec3 | null = missBeam
-        ? [
-            missBeam.point[0] + missBeam.direction[0] * flownM,
-            missBeam.point[1] + missBeam.direction[1] * flownM,
-            missBeam.point[2] + missBeam.direction[2] * flownM,
-          ]
+      const path = missBeam
+        ? missBeam.path.map((point): Vec3 => [
+            point[0] + missBeam!.direction[0] * flownM,
+            point[1] + missBeam!.direction[1] * flownM,
+            point[2] + missBeam!.direction[2] * flownM,
+          ])
         : null;
-      updateFireBeamLine(fireBeamLine, renderPos, tip, Math.max(0, 1 - fadeProgress));
+      updateWebStrand(fireStrand, path, renderPos, Math.max(0, 1 - fadeProgress), true);
     } else {
-      updateFireBeamLine(fireBeamLine, renderPos, null, 0);
+      updateWebStrand(fireStrand, null, renderPos, 0);
     }
 
     if (attachFlashStartMs !== null) {

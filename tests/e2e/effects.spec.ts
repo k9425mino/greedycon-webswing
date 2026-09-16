@@ -27,7 +27,7 @@ test.beforeEach(async ({ page }) => {
         `
         export function readEffects() {
           return { phase, firing: swing?.phase === 'firing',
-            beam: fireBeamLine.visible, beamOpacity: fireBeamLine.material.opacity,
+            beam: fireStrand.group.visible, beamOpacity: fireStrand.core.material.opacity,
             flash: attachFlash.visible,
             attached: attachedPoint !== null, audioAvailable: sfx.available };
         }
@@ -81,7 +81,8 @@ test('빗나간 발사는 한 번 표시된 뒤 누르고 있어도 사라진다
   await expect(page.locator('html')).not.toHaveAttribute('data-miss-beam-refired', 'true');
   await expect(page.locator('html')).not.toHaveAttribute('data-miss-attached', 'true');
   await expect(page.locator('html')).not.toHaveAttribute('data-invalid-beam-opacity', 'true');
-  await expect(page.locator('html')).toHaveAttribute('data-oscillators', '2');
+  // 바람 + 발사음 + 실패음. 줄이 손을 떠난 뒤 최대 사거리에서 실패하므로 발사음도 함께 난다.
+  await expect(page.locator('html')).toHaveAttribute('data-oscillators', '3');
   await page.mouse.up();
 });
 
