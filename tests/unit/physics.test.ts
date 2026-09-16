@@ -288,6 +288,22 @@ describe('sweepBuilding', () => {
     return physics;
   }
 
+  it('직접 명중과 스윕은 부착 자국에 사용할 벽의 바깥 법선을 전달한다', async () => {
+    const physics = await worldWithWall();
+    try {
+      const origin: [number, number, number] = [0, 20, -20];
+      const direct = physics.raycastBuilding(origin, [1, 0, 0], 70);
+      const swept = physics.sweepBuilding(origin, [1, 0, 0], 70, 2.5);
+      for (const hit of [direct, swept]) {
+        expect(hit?.normal?.[0]).toBeCloseTo(-1);
+        expect(hit?.normal?.[1]).toBeCloseTo(0);
+        expect(hit?.normal?.[2]).toBeCloseTo(0);
+      }
+    } finally {
+      physics.dispose();
+    }
+  });
+
   it('조준선이 벽을 빗나가도 보정 반경 안이면 접촉점을 돌려준다', async () => {
     const physics = await worldWithWall();
     // 벽은 x >= 12인데 x=10 선을 따라 쏜다. 직접 raycast는 못 맞히고 반경 2.5m 스윕이 잡는다.

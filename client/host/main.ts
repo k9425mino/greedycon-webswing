@@ -144,6 +144,7 @@ const recvRate = new RateCounter();
 let physics: PhysicsWorld | null = null;
 let swing: WebSwing | null = null;
 let attachedPoint: Vec3 | null = null;
+let attachedNormal: Vec3 = [0, 0, 1];
 let currentAimDirection: Vec3 = [0, 0, -1];
 let physicsAccumulatorSec = 0;
 let lastFrameAt: number | null = null;
@@ -528,6 +529,7 @@ function stepPhysicsFixed(nowSec: number) {
       if (!physics) return;
       physics.attach(target.point);
       attachedPoint = target.point;
+      attachedNormal = target.normal ?? [0, 0, 1];
       sfx.playAttach();
       showAttachFlashAt(attachFlash, target.point);
       attachFlashStartMs = nowSec * 1000;
@@ -667,7 +669,7 @@ function frameLoop(nowMs: number) {
       renderPos,
       1,
     );
-    updateWebSplat(webSplat, attachedPoint, renderPos);
+    updateWebSplat(webSplat, attachedPoint, attachedNormal);
 
     // 날아가는 줄과 빗나감 연출은 같은 가닥을 공유한다.
     const flightPath =

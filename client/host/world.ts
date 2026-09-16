@@ -57,6 +57,7 @@ export function chunkIndexForZ(z: number): number {
 export function buildChunk(index: number): Chunk {
   const {
     roadWidthM,
+    buildingSetbackM,
     chunkLengthM,
     buildingHeightRangeM,
     buildingHalfWidthXM,
@@ -67,7 +68,7 @@ export function buildChunk(index: number): Chunk {
   const random = chunkRandom(index);
   const startZ = -index * chunkLengthM;
   const endZ = -(index + 1) * chunkLengthM;
-  const buildingCenterX = roadWidthM / 2 + buildingHalfWidthXM;
+  const buildingCenterX = roadWidthM / 2 + buildingSetbackM + buildingHalfWidthXM;
 
   const buildings: BoxSpec[] = [];
 
@@ -97,7 +98,7 @@ export function buildChunk(index: number): Chunk {
     const scale = gameConfig.world.landmarkScale[kind];
     const centerZ = (startZ + endZ) / 2 - (side * (bounds.minX + bounds.maxX) * scale) / 2;
     landmark = {
-      position: [side * (roadWidthM / 2 + bounds.maxZ * scale), 0, centerZ],
+      position: [side * (roadWidthM / 2 + buildingSetbackM + bounds.maxZ * scale), 0, centerZ],
       side,
       kind,
       scale,

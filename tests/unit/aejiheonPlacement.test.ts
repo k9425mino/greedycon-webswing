@@ -49,7 +49,7 @@ it('드문 간격으로 좌우를 교대하고 탑 정면은 항상 도로를 �
       expect(Math.abs(colliders[8]!.center[0])).toBeGreaterThan(Math.abs(position[0]));
     for (const collider of colliders) {
       expect(Math.abs(collider.center[0]) - collider.halfExtents[0]).toBeGreaterThanOrEqual(
-        gameConfig.world.roadWidthM / 2 - 1e-6,
+        gameConfig.world.roadWidthM / 2 + gameConfig.world.buildingSetbackM - 1e-6,
       );
       expect(collider.center[2] + collider.halfExtents[2]).toBeLessThanOrEqual(-index * 60);
       expect(collider.center[2] - collider.halfExtents[2]).toBeGreaterThanOrEqual(

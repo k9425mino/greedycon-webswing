@@ -266,7 +266,11 @@ export class PhysicsWorld implements TargetQuery {
     );
     if (!hit) return null;
     const point = ray.pointAt(hit.timeOfImpact);
-    return { point: [point.x, point.y, point.z], distance: hit.timeOfImpact };
+    return {
+      point: [point.x, point.y, point.z],
+      distance: hit.timeOfImpact,
+      normal: [hit.normal.x, hit.normal.y, hit.normal.z],
+    };
   }
 
   // 조준 방향으로 구체를 쓸어 첫 건물 접촉점을 찾는다. 미리 배치한 후보점 배열을 대신하는 조준
@@ -296,7 +300,7 @@ export class PhysicsWorld implements TargetQuery {
     // 로컬이다). 타입 정의 주석은 반대로 적혀 있어 실제 값을 찍어 확인했다.
     const point: Vec3 = [hit.witness1.x, hit.witness1.y, hit.witness1.z];
     const distance = Math.hypot(point[0] - origin[0], point[1] - origin[1], point[2] - origin[2]);
-    return { point, distance };
+    return { point, distance, normal: [hit.normal1.x, hit.normal1.y, hit.normal1.z] };
   }
 
   isVisible(origin: Vec3, target: Vec3): boolean {

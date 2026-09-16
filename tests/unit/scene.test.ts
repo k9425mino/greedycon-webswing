@@ -171,15 +171,32 @@ it('구간을 생성·회수해도 scene 객체 수가 누적되지 않는다', 
   expect(scene.children.length).toBe(0);
 });
 
-it('부착 지점에는 원형 거미줄 자국이 카메라 쪽으로 조금 띄워져 놓인다', () => {
+it('부착 자국은 옆벽·정면·옥상의 표면 방향에 맞춰 밀착한다', () => {
   const splat = createWebSplat(new THREE.Scene());
   expect(splat.visible).toBe(false);
 
-  updateWebSplat(splat, [0, 0, -20], [0, 0, 0]);
+  updateWebSplat(splat, [0, 0, -20], [0, 0, 1]);
   expect(splat.visible).toBe(true);
   expect(splat.scale.x).toBe(gameConfig.effects.attachSplatRadiusM);
-  expect(splat.position.z).toBeCloseTo(-19.95);
+  expect(splat.position.z).toBeCloseTo(-19.985);
   expect(splat.position.x).toBeCloseTo(0);
+
+  for (const normal of [
+    [-1, 0, 0],
+    [1, 0, 0],
+    [0, 1, 0],
+  ] as [number, number, number][]) {
+    const point: [number, number, number] = [16, 20, -30];
+    updateWebSplat(splat, point, normal);
+    const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(splat.quaternion);
+    expect(facing.distanceTo(new THREE.Vector3(...normal))).toBeLessThan(1e-6);
+    expect(
+      splat.position
+        .clone()
+        .sub(new THREE.Vector3(...point))
+        .dot(facing),
+    ).toBeCloseTo(0.015);
+  }
 
   updateWebSplat(splat, null, [0, 0, 0]);
   expect(splat.visible).toBe(false);

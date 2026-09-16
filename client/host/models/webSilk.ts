@@ -81,7 +81,7 @@ export function createWebSilk(): THREE.Group {
   }
 
   const material = new THREE.MeshPhysicalMaterial({
-    color: 0xe5e9ed,
+    color: 0xf2f5f8,
     roughness: 0.32,
     metalness: 0,
     clearcoat: 0.3,

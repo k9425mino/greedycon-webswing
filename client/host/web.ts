@@ -2,7 +2,7 @@ import { gameConfig } from '@shared/config';
 
 export type Vec3 = [number, number, number];
 
-export type TargetHit = { point: Vec3; distance: number };
+export type TargetHit = { point: Vec3; distance: number; normal?: Vec3 };
 
 export interface TargetQuery {
   raycastBuilding(origin: Vec3, direction: Vec3, maxDistance: number): TargetHit | null;
@@ -181,7 +181,7 @@ export class WebSwing {
       if (hit) {
         this.failure = null;
         // 부착 거리는 표시·진단용이며, 실제 부착점은 줄 끝이 닿은 그 지점이다.
-        callbacks.onAttach({ point: hit.point, distance: this.travelled });
+        callbacks.onAttach({ ...hit, distance: this.travelled });
         this.phase = 'attached';
         return;
       }

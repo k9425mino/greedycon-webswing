@@ -20,6 +20,15 @@ describe('buildChunk', () => {
     expect(buildChunk(7)).not.toEqual(buildChunk(8));
   });
 
+  it('차도 폭을 유지하고 건물 앞에 양쪽 인도 공간을 확보한다', () => {
+    const chunk = buildChunk(0);
+    expect(chunk.road.halfExtents[0] * 2).toBe(gameConfig.world.roadWidthM);
+    for (const building of chunk.buildings) {
+      const innerFace = Math.abs(building.center[0]) - building.halfExtents[0];
+      expect(innerFace - chunk.road.halfExtents[0]).toBe(gameConfig.world.buildingSetbackM);
+    }
+  });
+
   it('구간 안에만 건물과 도로를 배치한다', () => {
     const chunk = buildChunk(3);
     const startZ = -3 * L;

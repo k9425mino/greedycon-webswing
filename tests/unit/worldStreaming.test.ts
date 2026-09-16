@@ -44,7 +44,8 @@ describe('무한 도로 스트리밍', () => {
       // 후보점 배열이 사라졌으므로 "걸 곳이 이어진다"를 실제 발사 경로로 확인한다. 건물 사이
       // 간격(2~6m) 때문에 특정 각도가 비는 것은 정상이라, 몇 가지 조준 중 하나만 걸리면 된다.
       for (const side of [-1, 1]) {
-        const found = [25, 35, 45].some(
+        // 인도로 건물이 멀어졌으므로 허용 조준 범위 안에서 더 넓게 훑는다.
+        const found = [15, 25, 35, 45, 55, 65].some(
           (yawDeg) =>
             selectTarget([0, y, z], aimDirection(side * yawDeg, 30), physics, swingOptions) !==
             null,

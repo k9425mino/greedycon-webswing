@@ -202,29 +202,33 @@ function createWebSplatTexture(): THREE.Texture | null {
   ctx.strokeStyle = '#ffffff';
   ctx.lineCap = 'round';
   const spokes = 12;
+  const tips = Array.from({ length: spokes }, (_, spoke) => {
+    const angle = (spoke / spokes) * Math.PI * 2 + Math.sin(spoke * 7.3) * 0.1;
+    const reach = radius * (0.78 + 0.22 * (0.5 + 0.5 * Math.sin(spoke * 8.31)));
+    return new THREE.Vector2(Math.cos(angle) * reach, Math.sin(angle) * reach);
+  });
   ctx.lineWidth = 3;
   for (let spoke = 0; spoke < spokes; spoke++) {
-    const angle = (spoke / spokes) * Math.PI * 2;
     ctx.beginPath();
     ctx.moveTo(center, center);
-    ctx.lineTo(center + Math.cos(angle) * radius, center + Math.sin(angle) * radius);
+    ctx.lineTo(center + tips[spoke]!.x, center + tips[spoke]!.y);
     ctx.stroke();
   }
   // 고리는 방사실 사이를 안쪽으로 살짝 파인 곡선으로 잇는다.
   ctx.lineWidth = 2.5;
   for (let ring = 1; ring <= 4; ring++) {
-    const ringRadius = (radius * ring) / 4;
+    const fraction = ring / 4;
     ctx.beginPath();
     for (let spoke = 0; spoke <= spokes; spoke++) {
-      const angle = (spoke / spokes) * Math.PI * 2;
-      const x = center + Math.cos(angle) * ringRadius;
-      const y = center + Math.sin(angle) * ringRadius;
+      const tip = tips[spoke % spokes]!;
+      const x = center + tip.x * fraction;
+      const y = center + tip.y * fraction;
       if (spoke === 0) ctx.moveTo(x, y);
       else {
-        const midAngle = angle - Math.PI / spokes;
+        const previous = tips[spoke - 1]!;
         ctx.quadraticCurveTo(
-          center + Math.cos(midAngle) * ringRadius * 0.86,
-          center + Math.sin(midAngle) * ringRadius * 0.86,
+          center + (previous.x + tip.x) * 0.43 * fraction,
+          center + (previous.y + tip.y) * 0.43 * fraction,
           x,
           y,
         );
@@ -238,7 +242,7 @@ function createWebSplatTexture(): THREE.Texture | null {
 const webSplatGeometry = new THREE.PlaneGeometry(2, 2);
 const webSplatTexture = createWebSplatTexture();
 const webSplatMaterial = new THREE.MeshBasicMaterial({
-  color: 0xe5e9ed,
+  color: 0xf2f5f8,
   transparent: true,
   depthWrite: false,
   side: THREE.DoubleSide,
@@ -464,8 +468,7 @@ export function saggedPath(from: Vec3, to: Vec3, samples = 8): Vec3[] {
   return points;
 }
 
-// 부착 중 부착 지점에 계속 떠 있는 원형 거미줄 자국. 카메라가 항상 -Z를 보고 롤이 없으므로
-// 기본 평면(법선 +Z)이 그대로 화면을 향한다.
+// 부착 중 건물 표면에 남는 거미줄 자국.
 export function createWebSplat(scene: THREE.Scene): THREE.Mesh {
   const mesh = new THREE.Mesh(webSplatGeometry, webSplatMaterial);
   mesh.visible = false;
@@ -473,19 +476,15 @@ export function createWebSplat(scene: THREE.Scene): THREE.Mesh {
   return mesh;
 }
 
-// point가 null이면(부착 해제) 숨긴다. 벽면과 겹쳐 깜빡이지 않도록 카메라 쪽으로 조금 띄운다.
-export function updateWebSplat(mesh: THREE.Mesh, point: Vec3 | null, camera: Vec3): void {
+// 벽면 법선을 따라 밀착시켜 플레이어가 이동해도 자국이 벽에서 떠돌지 않게 한다.
+export function updateWebSplat(mesh: THREE.Mesh, point: Vec3 | null, normal: Vec3): void {
   if (!point) {
     mesh.visible = false;
     return;
   }
-  const toCamera = new THREE.Vector3(
-    camera[0] - point[0],
-    camera[1] - point[1],
-    camera[2] - point[2],
-  );
-  if (toCamera.lengthSq() > 1e-12) toCamera.normalize();
-  mesh.position.set(...point).addScaledVector(toCamera, 0.05);
+  const surfaceNormal = new THREE.Vector3(...normal).normalize();
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), surfaceNormal);
+  mesh.position.set(...point).addScaledVector(surfaceNormal, 0.015);
   mesh.scale.setScalar(gameConfig.effects.attachSplatRadiusM);
   mesh.visible = true;
 }

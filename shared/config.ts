@@ -83,6 +83,8 @@ export const gameConfig = {
   // 무한 도로 구간 (ARCHITECTURE 5절 제안 초기값, 측정 전 시작점)
   world: {
     roadWidthM: 24,
+    // 차도 가장자리와 건물 사이에 확보하는 한쪽 인도 폭.
+    buildingSetbackM: 4,
     // 도로 양옆을 채우는 보도 바닥의 한쪽 폭. 건물 사이 틈과 먼 지평선까지 공허가 보이지 않을
     // 만큼 넓게 둔다(카메라 far=500). 충돌에는 쓰지 않는 순수 시각 요소다.
     sidewalkWidthM: 300,
