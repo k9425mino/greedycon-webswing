@@ -95,6 +95,12 @@ export const gameConfig = {
     buildingHalfWidthXM: 6,
     buildingDepthM: 18,
     buildingGapRangeM: [2, 6],
+    // 도로변 줄 바깥을 채우는 배경 건물. 빈 보도 판이 지평선까지 보이던 것을 가린다.
+    // 충돌체를 만들지 않으므로 거미줄은 통과한다(플레이 규칙은 도로변 줄까지 그대로다).
+    backdropRows: 3,
+    backdropRowGapM: 14,
+    backdropHeightRangeM: [30, 85],
+    backdropGapRangeM: [6, 16],
     startPositionZ: 0,
     // buildChunk 직접 호출 시 재현용 기본값. 실제 게임은 시작·재시작마다 새 seed를 사용한다.
     seed: 20260917,

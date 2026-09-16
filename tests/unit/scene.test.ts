@@ -144,9 +144,11 @@ it('모든 일반 건물을 오피스로 대체하고 회수 후에도 모델 �
   chunkMeshes.add(chunk);
   const group = scene.children[0] as THREE.Group;
   const offices = group.children.filter((child) => child.name.startsWith('Office '));
-  expect(offices).toHaveLength(chunk.buildings.length);
+  // 도로변 줄과 배경 줄 모두 같은 오피스 모델로 놓인다(배경은 충돌체만 없다).
+  const placed = [...chunk.buildings, ...chunk.backdrop];
+  expect(offices).toHaveLength(placed.length);
   offices.forEach((office, index) => {
-    const spec = chunk.buildings[index]!;
+    const spec = placed[index]!;
     expect(office.name).toBe(`Office ${spec.style}`);
     const bounds = new THREE.Box3().setFromObject(office);
     const size = bounds.getSize(new THREE.Vector3());

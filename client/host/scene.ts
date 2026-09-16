@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { gameConfig } from '@shared/config';
-import type { Chunk } from './world';
+import { mulberry32, type Chunk } from './world';
 import type { BoxSpec, Vec3 } from './physics';
 import { createAejiheon } from './models/aejiheon';
 import { createDaeyangAi } from './models/daeyangAi';
@@ -53,31 +53,117 @@ function tryCreateCanvas(width: number, height: number): CanvasRenderingContext2
   return canvas.getContext('2d');
 }
 
-function createRoadTexture(chunkLengthM: number): THREE.Texture | null {
-  const ctx = tryCreateCanvas(128, 512);
+// 노면 텍스처. 도로 폭과 같은 정사각 타일이라 세로 반복 수가 정수면 이음매가 보이지 않는다.
+// 차선 점선 주기가 8m라 24m 타일에 3주기가 들어간다.
+const ROAD_TILE_PX = 1024;
+
+function createRoadTexture(chunkLengthM: number, roadWidthM: number): THREE.Texture | null {
+  const ctx = tryCreateCanvas(ROAD_TILE_PX, ROAD_TILE_PX);
   if (!ctx) return null;
-  ctx.fillStyle = '#4d4d57';
-  ctx.fillRect(0, 0, 128, 512);
-  ctx.strokeStyle = '#f5d547';
-  ctx.lineWidth = 6;
-  ctx.setLineDash([28, 20]);
-  ctx.beginPath();
-  ctx.moveTo(64, 0);
-  ctx.lineTo(64, 512);
-  ctx.stroke();
-  ctx.strokeStyle = '#e8e8ec';
-  ctx.lineWidth = 4;
-  ctx.setLineDash([]);
-  ctx.beginPath();
-  ctx.moveTo(10, 0);
-  ctx.lineTo(10, 512);
-  ctx.moveTo(118, 0);
-  ctx.lineTo(118, 512);
-  ctx.stroke();
+  const random = mulberry32(gameConfig.world.seed);
+  const m = (meters: number) => (meters * ROAD_TILE_PX) / roadWidthM;
+
+  ctx.fillStyle = '#3c3e44';
+  ctx.fillRect(0, 0, ROAD_TILE_PX, ROAD_TILE_PX);
+
+  // 골재 알갱이. 단색 회색이 원근에서 미끄러져 보이던 것을 막는다. 속도감이 여기서 나온다.
+  const grains = Math.floor(ROAD_TILE_PX * ROAD_TILE_PX * 0.04);
+  for (let i = 0; i < grains; i++) {
+    const pick = random();
+    ctx.fillStyle = pick < 0.45 ? '#4a4d54' : pick < 0.8 ? '#33353a' : '#5b5f67';
+    ctx.fillRect(
+      random() * ROAD_TILE_PX,
+      random() * ROAD_TILE_PX,
+      1 + random() * 2.2,
+      1 + random() * 2.2,
+    );
+  }
+
+  // 바퀴가 닳린 자국. 6m 차로 4개의 좌우 바퀴 위치를 밝은 띠로 남겨 차로를 멀리서도 읽게 한다.
+  for (let lane = 0; lane < roadWidthM / 6; lane++) {
+    const laneCenter = 3 + lane * 6;
+    for (const offset of [-0.9, 0.9]) {
+      const gradient = ctx.createLinearGradient(
+        m(laneCenter + offset - 0.4),
+        0,
+        m(laneCenter + offset + 0.4),
+        0,
+      );
+      gradient.addColorStop(0, '#5a5d6400');
+      gradient.addColorStop(0.5, '#5a5d6455');
+      gradient.addColorStop(1, '#5a5d6400');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(m(laneCenter + offset - 0.4), 0, m(0.8), ROAD_TILE_PX);
+    }
+  }
+
+  // 보수 자국과 맨홀. 같은 타일이 반복되는 것이 눈에 띄지 않게 하는 불규칙 요소다.
+  for (let i = 0; i < 2; i++) {
+    const w = m(1.2 + random() * 2.4);
+    const h = m(1.6 + random() * 3);
+    const x = random() * (ROAD_TILE_PX - w);
+    const y = random() * (ROAD_TILE_PX - h);
+    ctx.fillStyle = '#34363b';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#2a2c30';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, h);
+  }
+  for (const [cx, cy] of [
+    [m(4.5), m(6.2)],
+    [m(19.5), m(17.4)],
+  ] as [number, number][]) {
+    const radius = m(0.35);
+    ctx.fillStyle = '#2f3136';
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#55585f';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    ctx.strokeStyle = '#4a4d53';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 6; i++) {
+      const angle = (i / 6) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(angle) * radius * 0.3, cy + Math.sin(angle) * radius * 0.3);
+      ctx.lineTo(cx + Math.cos(angle) * radius * 0.82, cy + Math.sin(angle) * radius * 0.82);
+      ctx.stroke();
+    }
+  }
+
+  // 노면 표시. 도료는 닳은 느낌으로 알파를 조금 낮춘다.
+  const paint = (x: number, width: number, color: string, dash?: [number, number]) => {
+    ctx.save();
+    ctx.globalAlpha = 0.92;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = m(width);
+    ctx.setLineDash(dash ? [m(dash[0]), m(dash[1])] : []);
+    ctx.beginPath();
+    ctx.moveTo(m(x), 0);
+    ctx.lineTo(m(x), ROAD_TILE_PX);
+    ctx.stroke();
+    ctx.restore();
+  };
+  const center = roadWidthM / 2;
+  // 중앙 황색 복선(추월 금지), 같은 방향 차로는 3m 칠 / 5m 공백 점선, 양 끝은 갓길 실선.
+  paint(center - 0.15, 0.15, '#e0b427');
+  paint(center + 0.15, 0.15, '#e0b427');
+  paint(center / 2, 0.15, '#dfe3e8', [3, 5]);
+  paint(center + center / 2, 0.15, '#dfe3e8', [3, 5]);
+  paint(0.3, 0.2, '#dfe3e8');
+  paint(roadWidthM - 0.3, 0.2, '#dfe3e8');
+
   const texture = new THREE.CanvasTexture(ctx.canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(1, chunkLengthM / 12);
+  // 구간마다 UV가 0에서 다시 시작하므로 반복 수가 정수가 아니면 구간 경계에서 점선 위상이 튄다.
+  // 60m 구간 / 24m 타일 = 2.5라 3으로 올림해 길이 방향만 약 17% 눌러 쓴다(점선이 3m→2.5m).
+  texture.repeat.set(1, Math.max(1, Math.round(chunkLengthM / roadWidthM)));
+  // 노면은 항상 비스듬히 보이므로 이방성 필터가 없으면 해상도를 올려도 멀리서 뭉개진다.
+  // three가 GPU 최대치로 잘라주므로 16을 그대로 둔다.
+  texture.anisotropy = 16;
   return texture;
 }
 
@@ -102,16 +188,17 @@ function createPavementTexture(): THREE.Texture | null {
   return texture;
 }
 
-const roadTexture = createRoadTexture(gameConfig.world.chunkLengthM);
+const roadTexture = createRoadTexture(gameConfig.world.chunkLengthM, gameConfig.world.roadWidthM);
 const roadMaterial = new THREE.MeshStandardMaterial({
-  color: 0x4d4d57,
-  ...(roadTexture ? { map: roadTexture } : {}),
+  // 텍스처가 아스팔트 색을 직접 갖고 있으므로 곱하지 않는다. 텍스처가 없는 환경에서만 단색으로 대체된다.
+  ...(roadTexture ? { color: 0xffffff, map: roadTexture } : { color: 0x4d4d57 }),
 });
 // 보도 판은 구간 하나를 통째로 덮는 넓은 박스라 텍스처 반복도 구간 크기에 맞춰 한 번만 정한다.
 const pavementTexture = createPavementTexture();
 pavementTexture?.repeat.set(gameConfig.world.sidewalkWidthM / 2, gameConfig.world.chunkLengthM / 2);
 const pavementMaterial = new THREE.MeshStandardMaterial({
-  color: 0xd8d3c8,
+  // 아이보리는 붉은 슈트·노란 차선과 같이 놓였을 때 떠 보여 한국 인도블록에 가까운 회색으로 낮췄다.
+  color: 0x8c8a85,
   ...(pavementTexture ? { map: pavementTexture } : {}),
 });
 const playerGeometry = new THREE.SphereGeometry(gameConfig.physics.playerRadius, 16, 12);
@@ -236,7 +323,7 @@ export function createChunkMeshes(scene: THREE.Scene) {
         landmark.rotation.y = (-chunk.landmark.side * Math.PI) / 2;
         group.add(landmark);
       }
-      for (const building of chunk.buildings) {
+      for (const building of [...chunk.buildings, ...chunk.backdrop]) {
         const office = officeTemplates[OFFICE_KINDS.indexOf(building.style)]!.clone();
         const [w, h, d] = building.halfExtents;
         office.scale.set(w / 6, h / 30, d / 9);

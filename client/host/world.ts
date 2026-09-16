@@ -10,10 +10,14 @@ import {
   type LandmarkPlacement,
 } from './models/landmarkPlacement';
 
+type Building = BoxSpec & { style: OfficeKind };
+
 export type Chunk = {
   index: number;
   road: BoxSpec;
-  buildings: (BoxSpec & { style: OfficeKind })[];
+  buildings: Building[];
+  // 도로변 줄 바깥을 채우는 배경 건물. 충돌체를 만들지 않는 순수 시각 요소다.
+  backdrop: Building[];
   landmark?: LandmarkPlacement;
 };
 
@@ -37,7 +41,8 @@ const LANDMARK_BOUNDS = {
 };
 
 // 게임 seed와 구간 index로 재현해 회수된 구간에 돌아와도 같은 배치를 유지한다.
-function mulberry32(seed: number): () => number {
+// 노면 텍스처의 알갱이처럼 매번 같아야 하는 장식에도 쓴다.
+export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -66,6 +71,10 @@ export function buildChunk(index: number, seed: number = gameConfig.world.seed):
     buildingHalfWidthXM,
     buildingDepthM,
     buildingGapRangeM,
+    backdropRows,
+    backdropRowGapM,
+    backdropHeightRangeM,
+    backdropGapRangeM,
   } = gameConfig.world;
 
   const random = chunkRandom(index, seed);
@@ -73,21 +82,42 @@ export function buildChunk(index: number, seed: number = gameConfig.world.seed):
   const endZ = -(index + 1) * chunkLengthM;
   const buildingCenterX = roadWidthM / 2 + buildingSetbackM + buildingHalfWidthXM;
 
-  const buildings: Chunk['buildings'] = [];
-
-  for (const side of [-1, 1] as const) {
-    let cursorZ = startZ - random() * buildingGapRangeM[1];
+  // 한 줄(고정 x)을 구간 길이만큼 건물로 채운다. 도로변 줄과 배경 줄이 같은 규칙을 쓴다.
+  function fillRow(
+    into: Building[],
+    side: -1 | 1,
+    centerX: number,
+    heightRange: readonly [number, number] | number[],
+    gapRange: readonly [number, number] | number[],
+  ) {
+    let cursorZ = startZ - random() * gapRange[1]!;
     while (cursorZ - buildingDepthM >= endZ) {
       const centerZ = cursorZ - buildingDepthM / 2;
-      const height =
-        buildingHeightRangeM[0] + random() * (buildingHeightRangeM[1] - buildingHeightRangeM[0]);
-      buildings.push({
-        center: [side * buildingCenterX, height / 2, centerZ],
+      const height = heightRange[0]! + random() * (heightRange[1]! - heightRange[0]!);
+      into.push({
+        center: [side * centerX, height / 2, centerZ],
         halfExtents: [buildingHalfWidthXM, height / 2, buildingDepthM / 2],
         style: OFFICE_KINDS[Math.floor(random() * OFFICE_KINDS.length)]!,
       });
-      const gap = buildingGapRangeM[0] + random() * (buildingGapRangeM[1] - buildingGapRangeM[0]);
+      const gap = gapRange[0]! + random() * (gapRange[1]! - gapRange[0]!);
       cursorZ = centerZ - buildingDepthM / 2 - gap;
+    }
+  }
+
+  const buildings: Building[] = [];
+  const backdrop: Building[] = [];
+  const rowStepX = buildingHalfWidthXM * 2 + backdropRowGapM;
+
+  for (const side of [-1, 1] as const) {
+    fillRow(buildings, side, buildingCenterX, buildingHeightRangeM, buildingGapRangeM);
+    for (let row = 1; row <= backdropRows; row++) {
+      fillRow(
+        backdrop,
+        side,
+        buildingCenterX + row * rowStepX,
+        backdropHeightRangeM,
+        backdropGapRangeM,
+      );
     }
   }
 
@@ -109,14 +139,20 @@ export function buildChunk(index: number, seed: number = gameConfig.world.seed):
     const halfDepth = ((bounds.maxX - bounds.minX) * scale) / 2;
     const minZ = (startZ + endZ) / 2 - halfDepth - buildingGapRangeM[0];
     const maxZ = (startZ + endZ) / 2 + halfDepth + buildingGapRangeM[0];
-    for (let i = buildings.length - 1; i >= 0; i--) {
-      const building = buildings[i]!;
-      if (
-        Math.sign(building.center[0]) === side &&
-        building.center[2] + building.halfExtents[2] > minZ &&
-        building.center[2] - building.halfExtents[2] < maxZ
-      )
-        buildings.splice(i, 1);
+    // 모델은 도로 쪽으로 90° 돌아가므로 도로에서 멀어지는 방향의 길이는 지역 z 범위가 결정한다.
+    const reachX =
+      roadWidthM / 2 + buildingSetbackM + (bounds.maxZ - bounds.minZ) * scale + buildingHalfWidthXM;
+    for (const row of [buildings, backdrop]) {
+      for (let i = row.length - 1; i >= 0; i--) {
+        const building = row[i]!;
+        if (
+          Math.sign(building.center[0]) === side &&
+          Math.abs(building.center[0]) < reachX &&
+          building.center[2] + building.halfExtents[2] > minZ &&
+          building.center[2] - building.halfExtents[2] < maxZ
+        )
+          row.splice(i, 1);
+      }
     }
   }
 
@@ -127,6 +163,7 @@ export function buildChunk(index: number, seed: number = gameConfig.world.seed):
       halfExtents: [roadWidthM / 2, ROAD_THICKNESS / 2, chunkLengthM / 2],
     },
     buildings,
+    backdrop,
     ...(landmark ? { landmark } : {}),
   };
 }
