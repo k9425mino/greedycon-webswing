@@ -96,12 +96,15 @@ export function createWebSilk(): THREE.Group {
   return group;
 }
 
+// 게임에서는 방사형 접착망을 경로에 따라 휘지 않고, 부착 지점의 평면 자국(scene의 webSplat)으로
+// 대신한다. 모델 자체는 미리보기와 공유하므로 여기서는 숨기기만 한다.
 export function createDeformableWebSilk() {
   const group = createWebSilk();
   const meshes = group.children.slice() as THREE.Mesh<
     THREE.BufferGeometry,
     THREE.MeshPhysicalMaterial
   >[];
+  meshes[2]!.visible = false;
   const source = meshes.map((mesh) => ({
     positions: new Float32Array(mesh.geometry.getAttribute('position').array),
     normals: new Float32Array(mesh.geometry.getAttribute('normal').array),
@@ -124,7 +127,7 @@ export function createDeformableWebSilk() {
     group,
     core: meshes[0]!,
     attachment: meshes[2]!,
-    update(points: THREE.Vector3[], radii: number[], opacity: number, attached: boolean) {
+    update(points: THREE.Vector3[], radii: number[], opacity: number) {
       // 경로마다 좌표계를 한 번만 계산하고 모든 섬유 정점에 재사용한다.
       const frames = points.map((point, i) => {
         tangent.subVectors(
@@ -138,7 +141,6 @@ export function createDeformableWebSilk() {
         up.crossVectors(side, tangent).normalize();
         return { point, tangent: tangent.clone(), side: side.clone(), up: up.clone() };
       });
-      meshes[2]!.visible = attached;
       meshes[0]!.material.opacity = opacity;
       for (let part = 0; part < meshes.length; part++) {
         const mesh = meshes[part]!;

@@ -61,6 +61,8 @@ export const gameConfig = {
   // 시각 효과의 기존 초기값. 실기기 체감 검증 전이다.
   effects: {
     attachFlashDurationMs: 220,
+    // 부착 지점에 남는 원형 거미줄 자국의 반지름(월드 고정 크기).
+    attachSplatRadiusM: 1.2,
     missBeamDurationMs: 260,
     // 거미줄 선(발사·빗나감·부착)의 시작점 오프셋. 카메라 원점에서 시작하면 한 점으로 투영된다.
     beamOriginOffsetM: [0.25, -0.2, -0.5] as [number, number, number],

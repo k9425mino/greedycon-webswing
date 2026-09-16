@@ -2,11 +2,14 @@ import { expect, it } from 'vitest';
 import * as THREE from 'three';
 import {
   createChunkMeshes,
+  createWebSplat,
   createWebStrand,
   saggedPath,
+  updateWebSplat,
   updateWebStrand,
 } from '../../client/host/scene';
 import { buildChunk } from '../../client/host/world';
+import { gameConfig } from '../../shared/config';
 
 it('카메라 위치에서 시작한 거미줄도 화면에서 길이를 가진다', () => {
   const strand = createWebStrand(new THREE.Scene());
@@ -63,7 +66,7 @@ it('거미줄이 없거나 다 흐려지면 그리지 않는다', () => {
   expect(strand.group.visible).toBe(false);
 });
 
-it('섬유 모델은 경로 변경 시 메시를 재사용하고 비행 중 접착망을 숨긴다', () => {
+it('섬유 모델은 경로 변경 시 메시를 재사용하고 방사형 접착망은 쓰지 않는다', () => {
   const strand = createWebStrand(new THREE.Scene());
   updateWebStrand(
     strand,
@@ -82,7 +85,7 @@ it('섬유 모델은 경로 변경 시 메시를 재사용하고 비행 중 접�
     expect(new THREE.Vector3().fromBufferAttribute(normals, i).length()).toBeCloseTo(1);
   }
   expect(strand.core.material).toBeInstanceOf(THREE.MeshPhysicalMaterial);
-  expect(strand.silk.attachment.visible).toBe(true);
+  expect(strand.silk.attachment.visible).toBe(false);
   updateWebStrand(
     strand,
     [
@@ -166,4 +169,18 @@ it('구간을 생성·회수해도 scene 객체 수가 누적되지 않는다', 
 
   for (let index = 17; index < 20; index++) chunkMeshes.remove(index);
   expect(scene.children.length).toBe(0);
+});
+
+it('부착 지점에는 원형 거미줄 자국이 카메라 쪽으로 조금 띄워져 놓인다', () => {
+  const splat = createWebSplat(new THREE.Scene());
+  expect(splat.visible).toBe(false);
+
+  updateWebSplat(splat, [0, 0, -20], [0, 0, 0]);
+  expect(splat.visible).toBe(true);
+  expect(splat.scale.x).toBe(gameConfig.effects.attachSplatRadiusM);
+  expect(splat.position.z).toBeCloseTo(-19.95);
+  expect(splat.position.x).toBeCloseTo(0);
+
+  updateWebSplat(splat, null, [0, 0, 0]);
+  expect(splat.visible).toBe(false);
 });

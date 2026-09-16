@@ -27,6 +27,7 @@ import { RateCounter } from './diagnostics';
 import {
   createAttachFlash,
   createChunkMeshes,
+  createWebSplat,
   createWebStrand,
   createPlayerMesh,
   saggedPath,
@@ -34,6 +35,7 @@ import {
   showAttachFlashAt,
   updateAttachFlash,
   updateCameraPosition,
+  updateWebSplat,
   updateWebStrand,
 } from './scene';
 import { isMouseInputEnabled, MouseAimInput } from './mouseInput';
@@ -150,6 +152,7 @@ const playerMesh = createPlayerMesh(sceneHandle.scene);
 const ropeStrand = createWebStrand(sceneHandle.scene);
 const fireStrand = createWebStrand(sceneHandle.scene);
 const attachFlash = createAttachFlash(sceneHandle.scene);
+const webSplat = createWebSplat(sceneHandle.scene);
 const chunkMeshes = createChunkMeshes(sceneHandle.scene);
 const progress = new Progress();
 const sfx = new SfxPlayer();
@@ -202,6 +205,7 @@ function setPhase(next: GamePhase, nextReason?: PauseReason) {
   if (next !== 'playing') {
     sfx.stopAll();
     fireStrand.group.visible = false;
+    webSplat.visible = false;
     attachFlash.visible = false;
     attachFlashStartMs = null;
     missBeam = null;
@@ -663,6 +667,7 @@ function frameLoop(nowMs: number) {
       renderPos,
       1,
     );
+    updateWebSplat(webSplat, attachedPoint, renderPos);
 
     // 날아가는 줄과 빗나감 연출은 같은 가닥을 공유한다.
     const flightPath =
