@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { io } from 'socket.io-client';
+import type { Page } from '@playwright/test';
+
+// 플레이 중에는 조작 창이 숨겨진다. 오디오·세션 동작만 보는 검증은 버튼을 직접 호출한다.
+async function clickHidden(page: Page, selector: string) {
+  await page.locator(selector).evaluate((button: HTMLButtonElement) => button.click());
+}
 
 // 테스트 응답에만 읽기 전용 관찰 함수를 붙인다. 제품 코드에는 테스트 훅을 두지 않는다.
 test.beforeEach(async ({ page }) => {
@@ -93,14 +99,14 @@ test('발사 중 정지하면 임시 효과가 사라지고 재개 후 다시 �
   const box = await page.locator('#scene').boundingBox();
   if (!box) throw new Error('canvas not found');
   await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.18);
-  // 100ms 발사 구간을 놓치지 않도록 브라우저 프레임 안에서 정지 버튼을 누른다.
+  // 100ms 발사 구간을 놓치지 않도록 브라우저 프레임 안에서 정지(Esc)를 보낸다.
   await page.evaluate(async () => {
     const path = '/host/main.ts';
     const { readEffects } = await import(path);
     const deadline = performance.now() + 5000;
     function check() {
       if (readEffects().firing) {
-        document.querySelector<HTMLButtonElement>('#btn-stop')!.click();
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
       } else if (performance.now() < deadline) requestAnimationFrame(check);
     }
     requestAnimationFrame(check);
@@ -120,8 +126,8 @@ test('발사 중 정지하면 임시 효과가 사라지고 재개 후 다시 �
   await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.18);
   await page.mouse.down();
   await expect.poll(snapshot).toMatchObject({ attached: true });
-  // 네이티브 버튼 호출은 마우스 해제를 만들지 않아 부착 보존도 검증한다.
-  await page.locator('#btn-stop').evaluate((button: HTMLButtonElement) => button.click());
+  // 키보드 정지는 마우스 해제를 만들지 않아 부착 보존도 검증한다.
+  await page.keyboard.press('Escape');
   expect(await snapshot()).toMatchObject({
     phase: 'paused',
     attached: true,
@@ -166,10 +172,11 @@ test('실제 AudioContext에서 음소거 해제와 정지 후 음소거 해제�
   await expect(page.locator('#status-physics')).toHaveText('준비됨');
   await page.locator('#btn-start').click();
   await expect(page.locator('html')).toHaveAttribute('data-oscillators', '1');
-  await page.locator('#btn-mute').click();
-  await page.locator('#btn-mute').click();
+  // 플레이 중에는 조작 창이 숨겨져 있으므로 음소거 버튼은 프로그램적으로 누른다.
+  await clickHidden(page, '#btn-mute');
+  await clickHidden(page, '#btn-mute');
   await expect(page.locator('html')).toHaveAttribute('data-oscillators', '2');
-  await page.locator('#btn-stop').click();
+  await page.keyboard.press('Escape');
   await page.locator('#btn-mute').click();
   await page.locator('#btn-mute').click();
   await expect(page.locator('html')).toHaveAttribute('data-oscillators', '2');
@@ -207,7 +214,7 @@ test('플레이 중 폰 교체는 바람과 임시 효과를 정리한다', asyn
     await page.locator('#btn-calibrate').click();
     await page.locator('#btn-start').click();
     await expect(page.locator('html')).toHaveAttribute('data-active-oscillators', '1');
-    await page.locator('#btn-switch-phone').click();
+    await clickHidden(page, '#btn-switch-phone');
     await expect(page.locator('#status-phase')).toHaveText('pairing');
     await expect(page.locator('html')).toHaveAttribute('data-active-oscillators', '0');
     expect(

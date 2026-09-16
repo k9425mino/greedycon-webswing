@@ -60,6 +60,8 @@ const statusPhase = document.getElementById('status-phase') as HTMLElement;
 const statusPhysics = document.getElementById('status-physics') as HTMLElement;
 const crosshair = document.getElementById('crosshair') as HTMLElement;
 const targetMarker = document.getElementById('target-marker') as HTMLElement;
+const modalBackdrop = document.getElementById('modal-backdrop') as HTMLElement;
+const pairingSection = document.getElementById('pairing-section') as HTMLElement;
 const recoverySection = document.getElementById('recovery-section') as HTMLElement;
 const recoveryMessage = document.getElementById('recovery-message') as HTMLElement;
 const gameOverSection = document.getElementById('gameover-section') as HTMLElement;
@@ -80,7 +82,6 @@ const diagSendHz = document.getElementById('diag-send-hz') as HTMLElement;
 const diagRecvHz = document.getElementById('diag-recv-hz') as HTMLElement;
 const btnCalibrate = document.getElementById('btn-calibrate') as HTMLButtonElement;
 const btnStart = document.getElementById('btn-start') as HTMLButtonElement;
-const btnStop = document.getElementById('btn-stop') as HTMLButtonElement;
 const btnMute = document.getElementById('btn-mute') as HTMLButtonElement;
 const btnSwitchPhone = document.getElementById('btn-switch-phone') as HTMLButtonElement;
 const btnRestart = document.getElementById('btn-restart') as HTMLButtonElement;
@@ -215,6 +216,9 @@ function setPhase(next: GamePhase, nextReason?: PauseReason) {
   reason = nextReason;
   statusPhase.textContent = phase;
   refreshStatusText();
+  // 플레이 중에는 조작 창을 통째로 숨겨 캔버스를 가리지 않는다(정지는 Esc).
+  modalBackdrop.hidden = phase === 'playing';
+  pairingSection.hidden = phase !== 'pairing';
   recoverySection.hidden = phase !== 'paused';
   gameOverSection.hidden = phase !== 'gameOver';
   const guide = guideMessageFor(phase);
@@ -475,9 +479,12 @@ btnStart.addEventListener('click', () => {
   sfx.resume();
   goToPlaying();
 });
-btnStop.addEventListener('click', () => {
+// 플레이 중에는 버튼이 없으므로 Esc로 정지한다(조작 창이 다시 뜬다).
+window.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
   if (phase === 'playing') goToPaused('operator');
 });
+
 btnSwitchPhone.addEventListener('click', () => {
   hostSocket.requestReplaceController();
   goToPairing();

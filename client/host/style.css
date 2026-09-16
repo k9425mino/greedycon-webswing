@@ -8,17 +8,15 @@ body {
 }
 
 #app {
-  display: flex;
+  position: relative;
   width: 100%;
   height: 100vh;
   overflow: hidden;
 }
 
 #game-area {
-  position: relative;
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 100%;
+  position: absolute;
+  inset: 0;
   overflow: hidden;
 }
 
@@ -113,40 +111,59 @@ body {
   color: #ff8f8f;
 }
 
-#panel {
-  position: static;
-  flex: 0 0 320px;
-  width: 320px;
-  max-height: 100vh;
+/* 게임 시작 전·일시정지·종료에만 뜨는 조작 창. 플레이 중에는 hidden으로 사라진다. */
+#modal-backdrop {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 5, 10, 0.72);
+}
+
+/* display:flex가 기본 [hidden] 규칙을 덮으므로 다시 숨긴다. */
+#modal-backdrop[hidden] {
+  display: none;
+}
+
+#modal {
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
   overflow-y: auto;
-  background: rgba(10, 10, 16, 0.85);
-  padding: 12px;
   box-sizing: border-box;
+  padding: 20px;
+  border: 1px solid #2a2a3a;
+  border-radius: 10px;
+  background: #12121c;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
   font-size: 14px;
+  text-align: center;
 }
 
-#panel h1 {
-  font-size: 16px;
-  margin: 0 0 8px;
+#modal h1 {
+  font-size: 18px;
+  margin: 0 0 12px;
 }
 
-#panel h2 {
-  font-size: 13px;
-  margin: 12px 0 4px;
-  color: #999;
+#invite-link {
+  color: #8ab4ff;
+  font-size: 12px;
+  word-break: break-all;
 }
 
 #qr-image {
-  width: 160px;
-  height: 160px;
+  width: 180px;
+  height: 180px;
   background: #fff;
 }
 
-#panel button {
+#modal button {
   display: block;
   width: 100%;
-  margin: 4px 0;
-  padding: 6px;
+  margin: 6px 0;
+  padding: 10px;
+  font-size: 15px;
 }
 
 #recovery-section {
@@ -174,6 +191,7 @@ body {
 
 #diagnostics-section {
   margin-top: 12px;
+  text-align: left;
   color: #999;
   font-size: 13px;
 }

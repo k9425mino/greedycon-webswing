@@ -26,55 +26,57 @@
         </div>
       </div>
 
-      <aside id="panel">
-        <section id="pairing-section">
-          <h1>손목 웹슈터</h1>
-          <img id="qr-image" alt="컨트롤러 접속 QR" />
-          <p><a id="invite-link" target="_blank" rel="noopener"></a></p>
-        </section>
+      <!-- 플레이 중에는 화면을 가리지 않도록 통째로 숨긴다. 플레이 중 정지는 Esc 키다. -->
+      <div id="modal-backdrop" hidden>
+        <div id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+          <h1 id="modal-title">손목 웹슈터</h1>
 
-        <section id="guide-section">
-          <p id="guide-message">폰으로 QR을 스캔해 접속하세요.</p>
-        </section>
+          <section id="pairing-section">
+            <img id="qr-image" alt="컨트롤러 접속 QR" />
+            <p><a id="invite-link" target="_blank" rel="noopener"></a></p>
+          </section>
 
-        <section id="controls-section">
-          <h2>조작</h2>
-          <button id="btn-calibrate">정면 보정</button>
-          <button id="btn-start">게임 시작</button>
-          <button id="btn-stop">정지</button>
-          <button id="btn-mute">소리 끄기</button>
-          <button id="btn-switch-phone">폰 교체</button>
-        </section>
+          <section id="guide-section">
+            <p id="guide-message">폰으로 QR을 스캔해 접속하세요.</p>
+          </section>
 
-        <section id="recovery-section" hidden>
-          <p id="recovery-message"></p>
-        </section>
+          <section id="recovery-section" hidden>
+            <p id="recovery-message"></p>
+          </section>
 
-        <section id="gameover-section" hidden>
-          <p id="gameover-reason"></p>
-          <p>점수 <span id="gameover-score">0</span></p>
-          <button id="btn-restart">다시 하기</button>
-        </section>
+          <section id="gameover-section" hidden>
+            <p id="gameover-reason"></p>
+            <p>점수 <span id="gameover-score">0</span></p>
+            <button id="btn-restart">다시 하기</button>
+          </section>
 
-        <details id="diagnostics-section">
-          <summary>진단 정보</summary>
-          <ul>
-            <li>연결: <span id="status-connection">대기중</span></li>
-            <li>센서: <span id="status-sensor">-</span></li>
-            <li>터치: <span id="status-touch">-</span></li>
-            <li>단계: <span id="status-phase">pairing</span></li>
-            <li>물리: <span id="status-physics">초기화 중</span></li>
-            <li>조준각(보정 후): <span id="diag-aim">-</span></li>
-            <li>표적: <span id="diag-target">-</span></li>
-            <li>거미줄 단계: <span id="diag-web-phase">-</span></li>
-            <li>마지막 실패: <span id="diag-web-failure">-</span></li>
-            <li>물리 부착: <span id="diag-attach">-</span></li>
-            <li>센서 발생률: <span id="diag-sensor-hz">-</span> Hz</li>
-            <li>송신률: <span id="diag-send-hz">-</span> Hz</li>
-            <li>수신률: <span id="diag-recv-hz">-</span> Hz</li>
-          </ul>
-        </details>
-      </aside>
+          <section id="controls-section">
+            <button id="btn-calibrate">정면 보정</button>
+            <button id="btn-start">게임 시작</button>
+            <button id="btn-mute">소리 끄기</button>
+            <button id="btn-switch-phone">폰 교체</button>
+          </section>
+
+          <details id="diagnostics-section">
+            <summary>진단 정보</summary>
+            <ul>
+              <li>연결: <span id="status-connection">대기중</span></li>
+              <li>센서: <span id="status-sensor">-</span></li>
+              <li>터치: <span id="status-touch">-</span></li>
+              <li>단계: <span id="status-phase">pairing</span></li>
+              <li>물리: <span id="status-physics">초기화 중</span></li>
+              <li>조준각(보정 후): <span id="diag-aim">-</span></li>
+              <li>표적: <span id="diag-target">-</span></li>
+              <li>거미줄 단계: <span id="diag-web-phase">-</span></li>
+              <li>마지막 실패: <span id="diag-web-failure">-</span></li>
+              <li>물리 부착: <span id="diag-attach">-</span></li>
+              <li>센서 발생률: <span id="diag-sensor-hz">-</span> Hz</li>
+              <li>송신률: <span id="diag-send-hz">-</span> Hz</li>
+              <li>수신률: <span id="diag-recv-hz">-</span> Hz</li>
+            </ul>
+          </details>
+        </div>
+      </div>
     </div>
     <script type="module" src="./host/main.ts"></script>
   </body>

@@ -4,7 +4,7 @@ test('마우스 플레이: 운영자 중지 후 시작 버튼으로 재개한다
   await page.goto('/?input=mouse');
   await expect(page.locator('#status-physics')).toHaveText('준비됨');
   await page.locator('#btn-start').click();
-  await page.locator('#btn-stop').click();
+  await page.keyboard.press('Escape');
   await expect(page.locator('#status-phase')).toHaveText('paused');
   await page.waitForTimeout(2200);
   await expect(page.locator('#status-phase')).toHaveText('paused');
