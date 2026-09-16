@@ -67,9 +67,9 @@ export const gameConfig = {
     // 섬유 묶음의 화면 두께와 부착 줄의 처짐을 조절한다.
     strand: {
       // 단면 반지름은 카메라까지의 거리에 비례해 먼 줄의 가독성을 유지한다.
-      widthRatio: 0.0025,
-      minWidthM: 0.002,
-      maxWidthM: 0.2,
+      widthRatio: 0.005,
+      minWidthM: 0.004,
+      maxWidthM: 0.4,
       // 섬유 모델을 비행·처짐 경로에 맞춰 변형하는 분할 수.
       pathSegments: 48,
       // 부착 줄이 아래로 처지는 정도(거리 비례, 상한 있음).
