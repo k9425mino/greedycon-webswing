@@ -6,6 +6,7 @@ import { createGwanggaeto } from '../host/models/gwanggaeto';
 import { createNaver } from '../host/models/naver';
 import { createOffice } from '../host/models/office';
 import { createWebSilk } from '../host/models/webSilk';
+import { createVehicle, VEHICLE_BODY_COLORS, VEHICLE_KINDS } from '../host/models/vehicle';
 
 type View = { position: [number, number, number]; target: [number, number, number] };
 type Preset = {
@@ -39,6 +40,25 @@ const presets: Record<string, Preset> = {
     overview: { position: [86, 58, 139], target: [0, 29, 0] },
     front: { position: [0, 31, 145], target: [0, 30, 0] },
     detail: { position: [42, 25, 42], target: [8, 24, 0] },
+  },
+  vehicles: {
+    title: '도로 위 자동차 7종',
+    eyebrow: 'CITY / TRAFFIC',
+    description: '세단 · SUV · 해치백 · 택시 · 승합 · 트럭 · 버스. 도로 네 차로를 달린다.',
+    detailLabel: '앞모습',
+    narrowFov: 60,
+    create: () => {
+      const group = new THREE.Group();
+      VEHICLE_KINDS.forEach((kind, index) => {
+        const vehicle = createVehicle(kind, VEHICLE_BODY_COLORS[index]!);
+        vehicle.position.x = (index - 3) * 6;
+        group.add(vehicle);
+      });
+      return group;
+    },
+    overview: { position: [12, 14, 30], target: [0, 1.2, 0] },
+    front: { position: [0, 3, 34], target: [0, 1.4, 0] },
+    detail: { position: [-14, 2.4, -12], target: [-14, 1.3, 0] },
   },
   naver: {
     title: '네이버 사옥',

@@ -43,6 +43,7 @@ import { initialCameraFeel, speedRatioFor, updateCameraFeel } from './cameraFeel
 import { isMouseInputEnabled, MouseAimInput } from './mouseInput';
 import { PhysicsWorld, type Vec3 } from './physics';
 import { ChunkedWorld, chunkIndexForZ, chunkBuildingColliders } from './world';
+import { createTraffic } from './traffic';
 import { Progress } from './progress';
 import { defaultSwingOptions, selectTarget, WebSwing } from './web';
 import { SfxPlayer } from './audio';
@@ -135,6 +136,7 @@ const attachFlash = createAttachFlash(sceneHandle.scene);
 const webSplat = createWebSplat(sceneHandle.scene);
 const chunkMeshes = createChunkMeshes(sceneHandle.scene);
 const speedLines = createSpeedLines(sceneHandle.scene);
+const traffic = createTraffic(sceneHandle.scene);
 const progress = new Progress();
 const sfx = new SfxPlayer();
 
@@ -171,6 +173,7 @@ PhysicsWorld.create()
     physics = created;
     physics.createPlayer(world.startPosition);
     world.reset();
+    traffic.reset(world.startPosition[2]);
     progress.reset(world.startPosition[2]);
     swing = new WebSwing(physics, swingOptions);
     physicsReady = true;
@@ -235,6 +238,7 @@ function resetRun() {
   if (!physics) return;
   physics.setPlayerPosition(world.startPosition);
   world.reset();
+  traffic.reset(world.startPosition[2]);
   progress.reset(world.startPosition[2]);
 }
 
@@ -617,6 +621,8 @@ function frameLoop(nowMs: number) {
     // 부착 중인 앵커가 속한 구간은 회수하지 않는다.
     const attachedChunkIndex = attachedPoint === null ? null : chunkIndexForZ(attachedPoint[2]);
     world.update(physics.getPlayerPosition()[2], attachedChunkIndex);
+    // 자동차는 물리와 무관한 장식이라 고정 스텝이 아니라 프레임 시간으로 움직인다.
+    traffic.update(physics.getPlayerPosition()[2], dtSec);
   }
 
   const playerSpeed = physics ? magnitude(physics.getPlayerVelocity()) : null;

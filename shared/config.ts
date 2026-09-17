@@ -163,6 +163,20 @@ export const gameConfig = {
     backdropRowGapM: 14,
     backdropHeightRangeM: [30, 85],
     backdropGapRangeM: [6, 16],
+    // 도로를 달리는 자동차(2026-09-17 추가). 빈 도로가 심심해 보이던 것을 채운다. 충돌체는
+    // 만들지 않는다. 아래 값은 제안값이고 실기기 프레임·체감 검증은 아직이다.
+    traffic: {
+      carCount: 22,
+      // 노면 텍스처의 차선과 같은 6m 폭 4개(도로 폭 24m).
+      laneCount: 4,
+      // 플레이어 기준 유지 범위. 앞은 카메라 far(500m)보다 짧게 두어 차가 허공에서 생기는
+      // 것이 보이지 않을 만큼만 잡는다.
+      spawnAheadM: 320,
+      spawnBehindM: 90,
+      speedRangeMps: [9, 18] as [number, number],
+      // 같은 차로에서 되돌린 차끼리 겹치지 않게 두는 최소 간격.
+      minGapM: 16,
+    },
     startPositionZ: 0,
     // buildChunk 직접 호출 시 재현용 기본값. 실제 게임은 시작·재시작마다 새 seed를 사용한다.
     seed: 20260917,
